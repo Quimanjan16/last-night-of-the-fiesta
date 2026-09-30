@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>The Last Night of the Fiesta</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=12">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <div id="game" class="on-title">
+    <div id="world"></div>
+    <div id="bg"></div>
+    <div id="chars"></div>
+    <div id="stage-click"></div>
+
+    <div id="hud">
+      <div id="stats"></div>
+      <div id="menu">
+        <button data-act="menu" class="menu-btn" title="Menu (Tab)">☰ Menu</button>
+      </div>
+    </div>
+
+    <div id="objective"><span id="objective-arrow">▲</span><span class="obj-label" data-i18n="objective">OBJECTIVE</span> <span id="objective-text"></span> <span id="objective-dist"></span></div>
+    <div id="prompt"></div>
+    <div id="crosshair"></div>
+    <div id="lookhint" data-i18n="clickToLook"></div>
+    <div id="questTracker"></div>
+    <canvas id="minimap" width="440" height="440"></canvas>
+    <div id="redvignette"></div>
+    <div id="survival">
+      <div class="sv-clock">🔔 <span id="sv-time">11:00 PM</span></div>
+      <div class="sv-row"><span>🏃</span><div class="sv-bar"><i id="sv-stamina"></i></div></div>
+      <div class="sv-row" id="sv-danger-row"><span id="sv-oil">🫙</span><div class="sv-bar danger"><i id="sv-danger"></i></div></div>
+      <div class="sv-row"><span id="sv-whip" class="sv-whip"></span><span id="sv-prot"></span></div>
+    </div>
+    <div id="bigmap" hidden>
+      <div class="bigmap-card">
+        <div id="bigmap-title" class="title-logo small"></div>
+        <canvas width="1600" height="1250"></canvas>
+        <div id="bigmap-hint" class="muted"></div>
+      </div>
+    </div>
+    <div id="bark"></div>
+    <div id="controls-help" data-i18n="controls"></div>
+    <div id="joystick"><div class="knob"></div></div>
+    <button id="act-btn">E</button>
+    <button id="whip-btn" title="Whip (F)">🪢</button>
+
+    <div id="box" tabindex="0" aria-live="polite">
+      <div id="portrait"></div>
+      <div id="nametag"></div>
+      <div id="text"></div>
+      <div id="next">▼</div>
+    </div>
+
+    <div id="choices"></div>
+    <div id="toasts"></div>
+    <div id="grain"></div>
+    <div id="scare"></div>
+    <div id="fade"></div>
+    <div id="overlay" class="overlay" hidden></div>
+    <div id="loading" data-i18n="loading">Loading Barrio San Isidro...</div>
+  </div>
+
+  <script src="js/i18n.js?v=12"></script>
+  <script src="js/art.js?v=12"></script>
+  <script src="js/story.js?v=12"></script>
+  <script src="js/audio.js?v=12"></script>
+  <script src="js/engine.js?v=12"></script>
+  <script type="module" src="js/world.js?v=12"></script>
+</body>
+</html>
