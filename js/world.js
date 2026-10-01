@@ -455,7 +455,7 @@ function buildBanderitas() {
   const strings = [
     [[0, -12], [30, 12]], [[0, 12], [30, -12]], [[0, 0], [30, 0]], [[0, -12], [30, -12]], [[0, 12], [30, 12]],
   ];
-  const cols = [0xe53935, 0xfdd835, 0x1e88e5, 0x43a047, 0xfb8c00, 0x8e24aa, 0xffffff].map((c) => new THREE.Color(c));
+  const cols = [0xe53935, 0xfdd835, 0x1e88e5, 0x43a047, 0xfb8c00, 0x8e24aa, 0xd8d8d8].map((c) => new THREE.Color(c).multiplyScalar(0.55));
   const flagsData = [];
   for (const [[ax, az], [bx, bz]] of strings) {
     const len = Math.hypot(bx - ax, bz - az), n = Math.floor(len / 0.75), ang = Math.atan2(bz - az, bx - ax);
@@ -494,26 +494,219 @@ function buildLamps() {
   }
 }
 
+// Jeepney: makintab na stainless, makukulay na pintura sa gilid, kabayong chrome sa hood,
+// upuang magkaharap sa loob, at bukas na pasukan sa likod
+let jeep = null;
+const jeepWheels = [];
+function jeepSideTex(flip) {
+  return canvasTex(1024, 256, (x, W, H) => {
+    // stainless na may guhit
+    const g = x.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#dfe4ea');
+    g.addColorStop(0.5, '#b8c0c8');
+    g.addColorStop(1, '#8a929a');
+    x.fillStyle = g;
+    x.fillRect(0, 0, W, H);
+    const stripes = ['#c0392b', '#f1c40f', '#1e5aa8', '#27ae60', '#e67e22'];
+    stripes.forEach((c, i) => {
+      x.fillStyle = c;
+      x.fillRect(0, H * 0.62 + i * 9, W, 6);
+    });
+    // mga apoy at bituin
+    for (let i = 0; i < 14; i++) {
+      x.fillStyle = stripes[i % 5];
+      x.beginPath();
+      const bx = 40 + i * 70;
+      x.moveTo(bx, H * 0.6);
+      x.quadraticCurveTo(bx + 25, H * 0.45, bx + 12, H * 0.32);
+      x.quadraticCurveTo(bx + 40, H * 0.45, bx + 50, H * 0.6);
+      x.fill();
+    }
+    x.font = 'bold 54px Impact, Arial Black, sans-serif';
+    x.textAlign = 'center';
+    x.lineWidth = 6;
+    x.strokeStyle = '#1a1a1a';
+    x.fillStyle = '#c0392b';
+    x.strokeText('SAN ISIDRO', W / 2, 70);
+    x.fillText('SAN ISIDRO', W / 2, 70);
+    x.font = 'italic bold 30px Georgia, serif';
+    x.fillStyle = '#1e3a8a';
+    x.fillText('God Bless Our Trip', W / 2, H - 20);
+    // kalawang at dumi
+    const R = rng(flip ? 2 : 1);
+    for (let i = 0; i < 260; i++) {
+      x.fillStyle = `rgba(${90 + R() * 60},${50 + R() * 30},20,${R() * 0.25})`;
+      x.fillRect(R() * W, R() * H, 2 + R() * 10, 1 + R() * 6);
+    }
+  });
+}
 function buildJeepney() {
   const g = new THREE.Group();
   g.position.set(8, 0, 40);
   scene.add(g);
-  box(g, 7, 2, 2.6, 0xdfe3e8, 0, 1.5, 0);
-  box(g, 2, 1.2, 2.3, 0xcfd4da, 4.4, 1.1, 0);
-  box(g, 6.6, 0.3, 2.8, 0xc0392b, -0.1, 2.65, 0);
-  box(g, 7.05, 0.25, 2.65, 0x1e5aa8, 0, 1.0, 0);
-  box(g, 7.05, 0.2, 2.65, 0xf1c40f, 0, 0.8, 0);
-  box(g, 6, 0.7, 2.66, 0x2c3e50, -0.3, 2.0, 0);
-  box(g, 0.1, 0.9, 2.2, 0x95a5a6, 5.42, 1.2, 0);
-  box(g, 0.2, 0.5, 0.15, 0xbdc3c7, 4.9, 1.95, 0);
-  box(g, 0.4, 0.2, 0.15, 0xbdc3c7, 5.0, 2.2, 0);
-  const wheelGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.4, 10);
-  for (const [x, z] of [[-2.2, 1.3], [-2.2, -1.3], [3.8, 1.3], [3.8, -1.3]]) {
-    const w = mesh(g, wheelGeo, mat(0x1b1b1b), x, 0.5, z);
-    w.rotation.x = Math.PI / 2;
+  jeep = g;
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd8dde3, roughness: 0.22, metalness: 0.9 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.08, metalness: 1 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x1a2028, roughness: 0.05, metalness: 0.4, transparent: true, opacity: 0.7 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xa8231c, roughness: 0.4, metalness: 0.3 });
+  const seat = new THREE.MeshStandardMaterial({ color: 0x5a1612, roughness: 0.55 });
+  const sideA = new THREE.MeshStandardMaterial({ map: jeepSideTex(false), roughness: 0.3, metalness: 0.55 });
+  const sideB = new THREE.MeshStandardMaterial({ map: jeepSideTex(true), roughness: 0.3, metalness: 0.55 });
+  const B = (w, h, d, m, x, y, z) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    b.position.set(x, y, z);
+    b.castShadow = b.receiveShadow = true;
+    g.add(b);
+    return b;
+  };
+  // likurang kaha (kung saan nakaupo ang pasahero)
+  B(5.2, 0.12, 2.3, dark, -1.2, 0.95, 0); // sahig
+  const sA = B(5.2, 0.85, 0.06, sideA, -1.2, 1.45, 1.15);
+  const sB = B(5.2, 0.85, 0.06, sideB, -1.2, 1.45, -1.15);
+  sB.rotation.y = Math.PI;
+  B(5.4, 0.08, 2.5, steel, -1.2, 2.55, 0); // bubong
+  B(5.5, 0.18, 2.55, red, -1.2, 2.66, 0); // gilid ng bubong
+  for (const z of [-1.1, 1.1]) for (let i = 0; i < 6; i++) B(0.06, 0.65, 0.06, chrome, -3.6 + i * 0.95, 2.18, z); // mga haligi ng bintana
+  for (const z of [-1.27, 1.27]) B(5.6, 0.04, 0.04, chrome, -1.2, 2.82, z); // rack sa bubong
+  // mga upuang magkaharap
+  for (const z of [-0.78, 0.78]) {
+    B(4.6, 0.1, 0.5, seat, -1.4, 1.38, z);
+    B(4.6, 0.45, 0.08, seat, -1.4, 1.72, z * 1.3);
   }
-  buildSign(g, 'SAN ISIDRO', '#c0392b', '#f1c40f', 5.5, 0.5, -0.1, 2.65, 1.42);
+  B(4.8, 0.03, 0.03, chrome, -1.4, 2.35, 0); // hawakan sa kisame
+  // likurang pasukan at tuntungan
+  B(0.06, 1.45, 0.4, steel, -3.82, 1.7, 0.95);
+  B(0.06, 1.45, 0.4, steel, -3.82, 1.7, -0.95);
+  B(0.5, 0.06, 1.2, chrome, -4.05, 0.62, 0);
+  // harap: hood, ihawan, ilaw, salamin
+  B(1.9, 0.75, 2.1, steel, 2.35, 1.2, 0);
+  B(0.08, 0.6, 1.6, chrome, 3.32, 1.15, 0);
+  for (let i = 0; i < 7; i++) B(0.1, 0.5, 0.04, dark, 3.34, 1.15, -0.6 + i * 0.2);
+  for (const z of [-0.85, 0.85]) {
+    const hl = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.08, 16), hot(3, 2.8, 2.2));
+    hl.rotation.z = Math.PI / 2;
+    hl.position.set(3.36, 1.25, z);
+    g.add(hl);
+  }
+  const ws = B(0.06, 0.7, 2.0, glass, 1.3, 2.0, 0);
+  ws.rotation.z = -0.15;
+  B(1.2, 0.08, 2.3, steel, 1.75, 2.42, 0); // bubong ng drayber
+  // mga kabayong chrome sa hood
+  for (const z of [-0.5, 0.5]) {
+    const h = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.18, 4, 8), chrome);
+    body.rotation.z = Math.PI / 2;
+    h.add(body);
+    const neck = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.14, 4, 8), chrome);
+    neck.position.set(0.13, 0.1, 0);
+    neck.rotation.z = -0.6;
+    h.add(neck);
+    const hd = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.08, 4, 8), chrome);
+    hd.position.set(0.21, 0.17, 0);
+    hd.rotation.z = Math.PI / 2 - 0.4;
+    h.add(hd);
+    for (const lx of [-0.08, 0.08]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 6), chrome);
+      leg.position.set(lx, -0.1, 0);
+      leg.rotation.z = lx > 0 ? 0.6 : -0.3;
+      h.add(leg);
+    }
+    h.position.set(2.9, 1.72, z);
+    g.add(h);
+  }
+  // mga gulong
+  const tire = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.85 });
+  for (const [x, z] of [[-2.6, 1.2], [-2.6, -1.2], [2.4, 1.2], [2.4, -1.2]]) {
+    const w = new THREE.Group();
+    w.position.set(x, 0.48, z);
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.32, 24), tire);
+    t.rotation.x = Math.PI / 2;
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.34, 16), chrome);
+    hub.rotation.x = Math.PI / 2;
+    w.add(t, hub);
+    w.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    g.add(w);
+    jeepWheels.push(w);
+  }
+  buildSign(g, 'SAN ISIDRO', '#c0392b', '#f1c40f', 2.0, 0.3, 3.0, 2.3, 0, Math.PI / 2);
   addRect(4.5, 38.6, 13.9, 41.4);
+}
+
+// ---------------- INTRO: sakay ng jeep → bumaba → nakita si Lola ----------------
+const intro = { active: false, t: 0, done: null, cap: null };
+const INTRO_T = { drive: 9, stop: 10.4, step: 13.6 };
+const INTRO_START = [-66, 40]; // mula sa kanluran ng kalsada, dumaraan sa mga bahay
+function startIntro(done, onCaption) {
+  intro.active = true;
+  intro.t = 0;
+  intro.done = done;
+  intro.cap = onCaption || null;
+  intro.said = {};
+  cine.active = true;
+  cine.fp = false;
+  camMode = 'cine';
+  player.visible = false;
+  setTime('day', true);
+  jeep.position.set(INTRO_START[0], 0, INTRO_START[1]);
+  if (window.Sound && Sound.jeep) Sound.jeep(true);
+}
+function finishIntro() {
+  if (!intro.active) return;
+  intro.active = false;
+  jeep.position.set(8, 0, 40);
+  if (window.Sound && Sound.jeep) Sound.jeep(false);
+  cine.active = false;
+  camMode = 'play';
+  const cb = intro.done;
+  intro.done = null;
+  if (cb) cb();
+}
+const _iv = new THREE.Vector3(), _il = new THREE.Vector3();
+function jeepLocal(x, y, z, out) {
+  return out.set(x, y, z).applyMatrix4(jeep.matrixWorld);
+}
+function updateIntro(dt) {
+  if (!intro.active) return;
+  const prevX = jeep.position.x;
+  intro.t += dt;
+  const t = intro.t, T = INTRO_T;
+  const k = Math.min(1, t / T.drive);
+  const ease = 1 - Math.pow(1 - k, 2.4);
+  jeep.position.x = lerp(INTRO_START[0], 8, ease);
+  jeep.position.y = t < T.drive ? Math.abs(Math.sin(t * 9)) * 0.025 * (1 - k) + Math.sin(t * 23) * 0.006 : 0;
+  jeep.rotation.z = t < T.drive ? Math.sin(t * 2.7) * 0.008 : 0;
+  jeep.updateMatrixWorld(true);
+  const sp = (jeep.position.x - prevX) / Math.max(dt, 1e-3);
+  for (const w of jeepWheels) w.rotation.z -= (sp * dt) / 0.48;
+  const say = (key, at, text) => { if (t >= at && !intro.said[key]) { intro.said[key] = true; if (intro.cap) intro.cap(key); } };
+  say('c1', 0.6);
+  say('c2', 4.2);
+  say('para', 7.4);
+  say('stop', T.drive);
+  if (t >= T.drive && intro.said.stop && !intro.said.engineOff) { intro.said.engineOff = true; if (window.Sound && Sound.jeep) Sound.jeep(false); }
+  if (t < T.stop) {
+    // nakaupo sa likod ng jeep, nakatingin palabas sa likurang pasukan
+    const vib = t < T.drive ? Math.sin(t * 31) * 0.008 + Math.sin(t * 13) * 0.01 : 0;
+    jeepLocal(-1.5, 1.95 + vib, -0.62, cine.pos);
+    jeepLocal(-7, 1.65, 0.35, cine.look);
+    cine.fov = 62;
+  } else {
+    // bumaba sa likod at lumingon kay Lola
+    const s = THREE.MathUtils.smoothstep(t, T.stop, T.step);
+    const p0 = jeepLocal(-1.5, 1.95, -0.62, new THREE.Vector3());
+    const p1 = jeepLocal(-3.9, 1.95, 0, new THREE.Vector3());
+    const p2 = jeepLocal(-4.7, 1.62, -0.6, new THREE.Vector3());
+    const p3 = new THREE.Vector3(2, 1.62, 36);
+    const curve = new THREE.CatmullRomCurve3([p0, p1, p2, p3]);
+    curve.getPoint(s, cine.pos);
+    cine.pos.y += Math.abs(Math.sin(s * Math.PI * 5)) * 0.04 * (1 - s); // mga hakbang
+    const lookOut = jeepLocal(-8, 1.6, 0, new THREE.Vector3());
+    const lola = new THREE.Vector3(-12, 1.55, 33.5);
+    cine.look.copy(lookOut).lerp(lola, THREE.MathUtils.smoothstep(s, 0.35, 0.95));
+    cine.fov = lerp(62, 72, s);
+    if (t >= T.step) finishIntro();
+  }
 }
 
 function buildShed() {
@@ -1159,19 +1352,82 @@ function personSimple(o) {
 }
 
 // ============================================================
-//  MGA TAO — totoong 3D na tao (Microsoft RocketBox, MIT) na may
-//  motion-capture na galaw, at nakakakilabot na itsura at kilos:
-//  maputla, nakatitig, bihirang kumurap, ngumingisi at kumikislot sa gabi.
+//  MGA TAO — totoong 3D na tao (Microsoft RocketBox, MIT) na binihisan
+//  bilang mga Pilipino (daster, barong, camisa de chino, sando, tsinelas),
+//  kayumangging balat at itim na buhok. Sa gabi: maputla, may dugo,
+//  itim na mata, nakatitig. Dito rin ginagawa ang manananggal at tikbalang.
 // ============================================================
 const PEOPLE = 'assets/people/';
 const PERSON_SCALE = 0.0105; // cm → m (~1.8 m na tao)
-const GENDER = { lola: 'f', tess: 'f', beth: 'f', nena: 'f', v4: 'f', v5: 'f', tonyo: 'm', kapitan: 'm', padre: 'm', kardo: 'm', v1: 'm', v2: 'm', v3: 'm' };
 const ANIMS = {
   f: { idle: ['f_idle_neutral_01', 'f_idle_look_around_01', 'f_idle_roll_head_01'], talk: ['f_gestic_talk_neutral_01', 'f_gestic_talk_nervous_01'], angry: ['f_gestic_talk_angry_01'] },
   m: { idle: ['m_idle_neutral_01', 'm_idle_look_around_01', 'm_idle_roll_head_01'], talk: ['m_gestic_talk_neutral_01', 'm_gestic_talk_nervous_01'], angry: ['m_idle_angry_01', 'm_gestic_listen_angry_01', 'm_cheer_01'] },
 };
+const C3 = (hex) => new THREE.Color(hex);
+const MORENA = 0x9a6a4c, KAYUMANGGI = 0x8a5a3c, MAPUTI = 0xb08468;
+// Mga bihis. Mga sukat ay sa cm ng bind pose (Z = taas).
+//  top/bottom: kulay; pat: 0 payak, 1 bulaklak (daster), 2 burda (barong), 3 guhit, 4 plaid
+//  sleeve: hanggang saan ang manggas (|x| cm; 21 = walang manggas, 30 = maikli, 55 = mahaba)
+//  dress: hanggang saang taas ang bestida (cm); bare: mas mababa rito = balat; feet: tsinelas
+const STYLES = {
+  lola: { model: 'lola', sex: 'f', skin: MORENA, hair: 0xd8d4cc, top: 0xb79ac8, top2: 0xf2d6e4, pat: 1, sleeve: 30, dress: 42, bare: 42, scale: 0.95, hunch: 0.22, bun: true },
+  tess: { model: 'tess', sex: 'f', skin: MORENA, hair: 0x0c0a09, top: 0xf2c94c, top2: 0x1e3a8a, pat: 0, sleeve: 30, bottom: 0x3a5a8a },
+  beth: { model: 'beth', sex: 'f', skin: KAYUMANGGI, hair: 0x0c0a09, top: 0x9c1c2c, top2: 0xf4d35e, pat: 1, sleeve: 30, dress: 40, bare: 40 },
+  nena: { model: 'nena', sex: 'f', skin: MORENA, hair: 0x120d0b, top: 0x2a8a8a, top2: 0xf6e7b0, pat: 1, sleeve: 30, dress: 38, bare: 38 },
+  tonyo: { model: 'tonyo', sex: 'm', skin: KAYUMANGGI, hair: 0x9a958c, top: 0xe8e0c8, pat: 0, sleeve: 55, bottom: 0x5a4a38, bare: 34, hunch: 0.12 },
+  kapitan: { model: 'kapitan', sex: 'm', skin: MORENA, hair: 0x14100e, top: 0xefe6cf, top2: 0xffffff, pat: 2, sleeve: 56, bottom: 0x18181a },
+  padre: { model: 'padre', sex: 'm', skin: MAPUTI, hair: 0x0e0b0a, top: 0xf2f0ea, pat: 0, sleeve: 56, bottom: 0xf2f0ea, dress: 6 },
+  kardo: { model: 'kardo', sex: 'm', skin: KAYUMANGGI, hair: 0x14100e, top: 0x5a7a9a, pat: 0, sleeve: 21, bottom: 0x8a7a5a, bare: 50 },
+  v1: { model: 'v1', sex: 'm', skin: MORENA, hair: 0x0c0a09, top: 0xc0392b, top2: 0xffffff, pat: 3, sleeve: 30, bottom: 0x2a2a2e },
+  v2: { model: 'v2', sex: 'm', skin: KAYUMANGGI, hair: 0x0c0a09, top: 0x2e5aa8, top2: 0xe8e8e8, pat: 4, sleeve: 30, bottom: 0x3a3a3a, bare: 48 },
+  v3: { model: 'v3', sex: 'm', skin: KAYUMANGGI, hair: 0x0c0a09, top: 0xd8d0b8, pat: 0, sleeve: 21, bottom: 0x4a4038, bare: 48 },
+  v4: { model: 'v4', sex: 'f', skin: MORENA, hair: 0x0c0a09, top: 0x6a8a3a, top2: 0xf0e0a0, pat: 1, sleeve: 30, dress: 40, bare: 40 },
+  v5: { model: 'v5', sex: 'f', skin: MORENA, hair: 0x0c0a09, top: 0xe8d8e8, pat: 0, sleeve: 30, bottom: 0x5a3a6a, dress: 40, bare: 40 },
+  // Mga nilalang
+  whitelady: { model: 'nena', sex: 'f', skin: 0xb8b0a8, hair: 0x050404, top: 0xeeeae2, pat: 0, sleeve: 56, bottom: 0xeeeae2, dress: 0, force: 1, longHair: true, coverFace: true },
+  mng: { model: 'mng', sex: 'f', skin: 0x9a9488, hair: 0x050404, top: 0x3a0a10, pat: 0, sleeve: 24, bottom: 0x3a0a10, force: 1, cut: 101, longHair: true },
+  mngLow: { model: 'mng', sex: 'f', skin: 0x9a9488, hair: 0x050404, top: 0x3a0a10, bottom: 0x2a2a30, sleeve: 24, force: 1, headCut: 101 },
+  tik: { model: 'v3', sex: 'm', skin: 0x2a1e18, hair: 0x050404, fur: 1, force: 1, headCut: 150, scale: 2.15 }, // higante (~3.9 m)
+};
+const STYLE_KEYS = Object.keys(STYLES);
+// tela ng daster (bulaklakin) para sa palda
+const dressMats = {};
+function dressMat(st) {
+  const k = st.top + ':' + st.top2;
+  if (!dressMats[k]) {
+    const top = '#' + C3(st.top).getHexString(), fl = '#' + C3(st.top2 ?? st.top).getHexString();
+    const t = canvasTex(256, 256, (x, W, H) => {
+      x.fillStyle = top;
+      x.fillRect(0, 0, W, H);
+      const R = rng(7);
+      for (let i = 0; i < (st.pat === 1 ? 22 : 0); i++) {
+        const cx = R() * W, cy = R() * H, r = 9 + R() * 7;
+        x.fillStyle = fl;
+        for (let k2 = 0; k2 < 5; k2++) {
+          const a = (k2 / 5) * Math.PI * 2;
+          x.beginPath();
+          x.ellipse(cx + Math.cos(a) * r * 0.6, cy + Math.sin(a) * r * 0.6, r * 0.5, r * 0.32, a, 0, Math.PI * 2);
+          x.fill();
+        }
+        x.fillStyle = '#d9a23a';
+        x.beginPath();
+        x.arc(cx, cy, r * 0.25, 0, Math.PI * 2);
+        x.fill();
+      }
+      // tupi ng tela
+      for (let i = 0; i < 18; i++) {
+        x.fillStyle = 'rgba(0,0,0,' + (0.05 + R() * 0.08) + ')';
+        x.fillRect((i / 18) * W, 0, 4 + R() * 6, H);
+      }
+    });
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 1.5);
+    dressMats[k] = new THREE.MeshStandardMaterial({ map: t, color: 0xb0b0b0, roughness: 0.92, side: THREE.DoubleSide });
+  }
+  return dressMats[k];
+}
 // Gaano kakilabot ngayon (0 = araw, 1 = gabi/takot); itinatakda sa stepTime
-const creep = { value: 0.35 };
+const creep = { value: 0.2 };
 const fbxManager = new THREE.LoadingManager();
 // gamit natin ang sariling JPG; huwag nang i-load ang TGA na nasa loob ng FBX
 fbxManager.addHandler(/\.tga$/i, { load: () => new THREE.Texture(), setPath() { return this; }, setCrossOrigin() { return this; } });
@@ -1179,93 +1435,186 @@ const fbxLoader = new FBXLoader(fbxManager);
 const peopleTex = new THREE.TextureLoader();
 const clipCache = {};
 function loadClip(name) {
-  if (!clipCache[name]) {
-    clipCache[name] = fetch(PEOPLE + 'anims/' + name + '.json').then((r) => r.json()).then((j) => THREE.AnimationClip.parse(j));
-  }
+  if (!clipCache[name]) clipCache[name] = fetch(PEOPLE + 'anims/' + name + '.json').then((r) => r.json()).then((j) => THREE.AnimationClip.parse(j));
   return clipCache[name];
 }
-function ptex(key, file, srgb = true) {
-  const t = peopleTex.load(PEOPLE + key + '/' + file);
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
+const ptexCache = {};
+function ptex(dir, file, srgb = true) {
+  const k = dir + '/' + file;
+  if (!ptexCache[k]) {
+    const t = peopleTex.load(PEOPLE + k);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    ptexCache[k] = t;
+  }
+  return ptexCache[k];
 }
-// Shader ng balat/damit: maputla at abuhing balat, pasa, dumi at tilamsik ng dugo (lumalala sa gabi)
-function creepify(m, kind, eyes) {
+
+const PEOPLE_GLSL = `
+varying vec3 vObj;
+uniform float uCreep, uForce;
+uniform vec3 uSkinT, uHairC, uTopC, uTop2C, uBotC, uEyeL, uEyeR;
+uniform float uPat, uSleeve, uDress, uBare, uCut, uFur, uHeadCut, uHasBot;
+float cH(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float cN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(cH(i), cH(i+vec3(1,0,0)), f.x), mix(cH(i+vec3(0,1,0)), cH(i+vec3(1,1,0)), f.x), f.y),
+             mix(mix(cH(i+vec3(0,0,1)), cH(i+vec3(1,0,1)), f.x), mix(cH(i+vec3(0,1,1)), cH(i+vec3(1,1,1)), f.x), f.y), f.z); }
+// bulaklak na disenyo ng daster (sa object space, cm)
+float flower(vec3 p) {
+  vec2 q = vec2(p.x + p.y * 0.7, p.z) / 9.0;
+  vec2 id = floor(q), f = fract(q) - 0.5;
+  vec2 o = vec2(cH(vec3(id, 1.0)), cH(vec3(id, 2.0))) - 0.5;
+  vec2 d = f - o * 0.4;
+  float a = atan(d.y, d.x), r = length(d);
+  float petals = 0.16 + 0.07 * cos(a * 5.0 + cH(vec3(id, 3.0)) * 6.0);
+  return smoothstep(petals, petals - 0.03, r) - smoothstep(0.06, 0.03, r) * 0.6;
+}
+`;
+const PEOPLE_COLOR = (kind) => `
+{ vec3 c = diffuseColor.rgb;
+  float creepK = max(uCreep, uForce);
+  float lum = dot(c, vec3(0.299, 0.587, 0.114));
+  float skin = smoothstep(0.02, 0.12, c.r - c.b) * smoothstep(0.03, 0.2, lum) * (1.0 - smoothstep(0.75, 0.95, lum));
+  vec3 P = vObj; float ax = abs(P.x);
+  ${kind === 'body' ? `
+  // --- damit ---
+  // hinahati ayon sa posisyon sa katawan (hindi sa kulay)
+  bool arm = ax > 21.0 && P.z > 85.0;
+  float shade = clamp(lum * 1.9, 0.25, 1.35);
+  bool armCloth = arm && ax <= min(uSleeve, 53.0);
+  bool torsoCloth = !arm && P.z > 9.0 && P.z < 138.0;
+  bool bare = (arm && !armCloth) || (!arm && P.z < uBare && P.z > 9.0);
+  bool feet = P.z <= 9.0;
+  if (feet) { if (uBare > 0.0) c = mix(vec3(0.05, 0.04, 0.035), uSkinT * 0.55, smoothstep(3.0, 9.0, P.z)); else c *= 0.7; skin = 0.0; } // tsinelas at maputik na paa, o sapatos
+  else if (bare) { c = uSkinT * (0.88 + (lum - 0.4) * 0.25); skin = 0.0; }
+  else if (torsoCloth || armCloth) {
+    bool isTop = P.z > 102.0 || arm || (uDress > 0.0 && P.z > uDress);
+    vec3 base = isTop || uHasBot < 0.5 ? uTopC : uBotC;
+    vec3 col = base;
+    if (isTop || uHasBot < 0.5) {
+      if (uPat == 1.0) col = mix(base, uTop2C, clamp(flower(P), 0.0, 1.0));
+      if (uPat == 2.0) { float e = sin(P.z * 3.1) * sin(P.x * 3.1 + P.z * 1.4); col = mix(base, uTop2C, smoothstep(0.55, 0.95, e) * step(-20.0, P.y)); }
+      if (uPat == 3.0) col = mix(base, uTop2C, step(0.5, fract(P.z / 5.0)) * 0.7);
+      if (uPat == 4.0) col = mix(base, uTop2C, max(step(0.75, fract(P.z / 7.0)), step(0.75, fract(P.x / 7.0))) * 0.55);
+    }
+    c = col * shade;
+    skin = 0.0;
+  }
+  // balahibo ng tikbalang
+  if (uFur > 0.5) {
+    float strand = cN(vec3(P.x * 1.5, P.y * 1.5, P.z * 0.25)) * 0.6 + cN(P * 4.0) * 0.4;
+    c = uSkinT * (0.35 + strand * 0.9) * clamp(lum * 1.6, 0.5, 1.2);
+    skin = 0.0;
+  }` : ''}
+  ${kind === 'head' ? `
+  // --- buhok: itaas at likod ng ulo (batay sa mata) ---
+  float eyeZ = uEyeL.z, eyeY = uEyeL.y;
+  bool hairZone = P.z > eyeZ + 4.5 || (P.y > eyeY + 9.0 && P.z > eyeZ - 9.0) || (ax > 7.5 && P.z > eyeZ + 1.0 && P.y > eyeY + 4.0);
+  if (hairZone && lum < 0.55 && skin < 0.95) { c = uHairC * (0.55 + lum * 1.2) + vec3(cN(P * 3.0) * 0.04); skin = 0.0; }
+  if (uFur > 0.5) c = uSkinT * (0.4 + lum);` : ''}
+  // --- kulay ng balat (kayumanggi) ---
+  c = mix(c, uSkinT * clamp(lum * 1.75, 0.35, 1.35), skin * 0.85);
+  // --- kilabot (gabi) ---
+  float pale = creepK * 0.65;
+  vec3 ash = vec3(lum) * vec3(0.9, 0.95, 0.9) * 1.1;
+  c = mix(c, ash, skin * pale);
+  float bruise = smoothstep(0.62, 0.85, cN(P * 0.09)) * skin * creepK;
+  c = mix(c, c * vec3(0.55, 0.42, 0.6), bruise * 0.7);
+  c *= 0.84 + cN(P * 0.35) * 0.22;
+  float sp = cN(P * 0.6 + 3.1) * 0.7 + cN(P * 2.3) * 0.3;
+  float blood = smoothstep(0.74, 0.8, sp) * smoothstep(0.35, 0.9, creepK);
+  c = mix(c, vec3(0.16, 0.0, 0.01), blood * 0.9);
+  ${kind === 'head' ? `
+  float de = min(distance(P, uEyeL), distance(P, uEyeR));
+  c = mix(c, c * vec3(0.32, 0.18, 0.2), smoothstep(3.8, 1.7, de) * (0.2 + creepK * 0.6));
+  c = mix(c, vec3(0.012, 0.006, 0.006), smoothstep(1.68, 1.56, de) * smoothstep(0.55, 0.95, creepK));` : ''}
+  diffuseColor.rgb = c * (1.0 - creepK * 0.1);
+  gBlood = blood; }`;
+
+// Gumawa ng materyal para sa isang estilo (bihis)
+function peopleMat(kind, st, eyes, opts = {}) {
+  const dir = st.model;
+  const m = new THREE.MeshStandardMaterial({
+    map: ptex(dir, kind === 'head' ? 'head.jpg' : 'body.jpg'),
+    normalMap: ptex(dir, kind === 'head' ? 'headn.jpg' : 'bodyn.jpg', false),
+    roughness: kind === 'head' ? 0.6 : 0.88,
+    metalness: 0,
+    side: st.cut ? THREE.DoubleSide : THREE.FrontSide,
+  });
+  const u = {
+    uCreep: creep,
+    uForce: { value: st.force || 0 },
+    uSkinT: { value: C3(st.skin) },
+    uHairC: { value: C3(st.hair) },
+    uTopC: { value: C3(st.top ?? 0x777777) },
+    uTop2C: { value: C3(st.top2 ?? st.top ?? 0x777777) },
+    uBotC: { value: C3(st.bottom ?? st.top ?? 0x777777) },
+    uHasBot: { value: st.bottom != null ? 1 : 0 },
+    uPat: { value: st.pat || 0 },
+    uSleeve: { value: st.sleeve ?? 30 },
+    uDress: { value: st.dress ?? 0 },
+    uBare: { value: st.bare ?? 0 },
+    uCut: { value: st.cut ?? -1 },
+    uFur: { value: st.fur || 0 },
+    uHeadCut: { value: st.headCut ?? 999 },
+    uEyeL: eyes.l,
+    uEyeR: eyes.r,
+  };
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.uCreep = creep;
-    if (eyes) { sh.uniforms.uEyeL = eyes.l; sh.uniforms.uEyeR = eyes.r; }
+    Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vObj;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>
-varying vec3 vObj;
-uniform float uCreep;
-${kind === 'head' ? 'uniform vec3 uEyeL, uEyeR;' : ''}
-float cH(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
-float cN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-  return mix(mix(mix(cH(i), cH(i+vec3(1,0,0)), f.x), mix(cH(i+vec3(0,1,0)), cH(i+vec3(1,1,0)), f.x), f.y),
-             mix(mix(cH(i+vec3(0,0,1)), cH(i+vec3(1,0,1)), f.x), mix(cH(i+vec3(0,1,1)), cH(i+vec3(1,1,1)), f.x), f.y), f.z); }`)
-      .replace('#include <map_fragment>', `#include <map_fragment>
-{ vec3 c = diffuseColor.rgb;
-  float lum = dot(c, vec3(0.299, 0.587, 0.114));
-  // balat ba? (mapula-pula/kayumanggi na tono)
-  float skin = smoothstep(0.02, 0.12, c.r - c.b) * smoothstep(0.03, 0.2, lum);
-  float pale = ${kind === 'head' ? '0.55' : '0.4'} + uCreep * 0.4;
-  vec3 ash = vec3(lum) * vec3(0.92, 0.96, 0.9) * (1.0 + uCreep * 0.15);
-  c = mix(c, ash, skin * pale);
-  // mga pasa at ugat na kulay-ube
-  float bruise = smoothstep(0.62, 0.85, cN(vObj * 0.09)) * skin * uCreep;
-  c = mix(c, c * vec3(0.55, 0.42, 0.6), bruise * 0.7);
-  // dumi
-  c *= 0.82 + cN(vObj * 0.35) * 0.25;
-  // tilamsik ng dugo (sa gabi)
-  float sp = cN(vObj * 0.6 + 3.1) * 0.7 + cN(vObj * 2.3) * 0.3;
-  float blood = smoothstep(0.74, 0.8, sp) * smoothstep(0.35, 0.9, uCreep);
-  c = mix(c, vec3(0.16, 0.0, 0.01), blood * 0.9);
-  ${kind === 'head' ? `
-  // lubog at maitim na mata; sa gabi, itim na itim ang mga mata
-  float de = min(distance(vObj, uEyeL), distance(vObj, uEyeR));
-  float sock = smoothstep(3.8, 1.7, de);
-  c = mix(c, c * vec3(0.32, 0.18, 0.2), sock * (0.35 + uCreep * 0.45));
-  float ball = smoothstep(1.68, 1.56, de); // ang eyeball ay ~1.5 cm mula sa buto
-  c = mix(c, vec3(0.012, 0.006, 0.006), ball * smoothstep(0.55, 0.95, uCreep));` : ''}
-  diffuseColor.rgb = c * (1.0 - uCreep * 0.12); }`)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-{ float sp = cN(vObj * 0.6 + 3.1) * 0.7 + cN(vObj * 2.3) * 0.3;
-  roughnessFactor = mix(roughnessFactor, 0.15, smoothstep(0.74, 0.8, sp) * smoothstep(0.35, 0.9, uCreep)); }`);
+      .replace('#include <common>', '#include <common>\n' + PEOPLE_GLSL)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+if (vObj.z < uCut) discard;                 // manananggal: putol sa baywang
+if (vObj.z > uHeadCut) discard;             // tikbalang: ulo ng kabayo ang kapalit`)
+      .replace('#include <map_fragment>', '#include <map_fragment>\nfloat gBlood = 0.0;\n' + PEOPLE_COLOR(kind) + `
+if (!gl_FrontFacing) diffuseColor.rgb = vec3(0.22, 0.01, 0.02); // loob ng hiwa: laman at dugo`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.15, gBlood);' + (st.fur ? '\nroughnessFactor = 0.75;' : ''));
   };
-  m.customProgramCacheKey = () => 'creep' + kind;
+  m.customProgramCacheKey = () => 'people3' + kind;
   return m;
 }
+function hairCardMat(st) {
+  if (st.headCut) return new THREE.MeshBasicMaterial({ visible: false });
+  const m = new THREE.MeshStandardMaterial({ map: ptex(st.model, 'opacity.png'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.65, metalness: 0, color: C3(st.hair) });
+  // ang texture ay gamit lang sa hugis (alpha); ang kulay ng buhok ay mula sa estilo
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  diffuseColor.rgb *= 0.6 + dot(sampledDiffuseColor.rgb, vec3(0.333)) * 0.8;
+  diffuseColor.a *= sampledDiffuseColor.a;
+#endif`);
+  };
+  m.customProgramCacheKey = () => 'haircard';
+  return m;
+}
+
 const templates = {};
-function loadTemplate(key) {
-  if (!templates[key]) {
-    templates[key] = new Promise((res, rej) => {
-      fbxLoader.load(PEOPLE + key + '/model.fbx', (o) => {
+function loadTemplate(styleKey) {
+  if (!templates[styleKey]) {
+    const st = STYLES[styleKey];
+    templates[styleKey] = new Promise((res, rej) => {
+      fbxLoader.load(PEOPLE + st.model + '/model.fbx', (o) => {
         const eyes = { l: { value: new THREE.Vector3(0, -999, 0) }, r: { value: new THREE.Vector3(0, -999, 0) } };
-        const mats = {
-          body: creepify(new THREE.MeshStandardMaterial({ map: ptex(key, 'body.jpg'), normalMap: ptex(key, 'bodyn.jpg', false), roughness: 0.88, metalness: 0 }), 'body'),
-          head: creepify(new THREE.MeshStandardMaterial({ map: ptex(key, 'head.jpg'), normalMap: ptex(key, 'headn.jpg', false), roughness: 0.6, metalness: 0 }), 'head', eyes),
-          opacity: null, // buhok/pilikmata: ilo-load lang kung mayroon ang modelo
-        };
+        const mats = { body: peopleMat('body', st, eyes), head: peopleMat('head', st, eyes), opacity: null };
         o.traverse((c) => {
           if (!c.isMesh) return;
           c.material = [].concat(c.material).map((mm) => {
-            if (/opacity/i.test(mm.name)) return mats.opacity || (mats.opacity = new THREE.MeshStandardMaterial({ map: ptex(key, 'opacity.png'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.7, metalness: 0 }));
+            if (/opacity/i.test(mm.name)) return mats.opacity || (mats.opacity = hairCardMat(st));
             return /head/i.test(mm.name) ? mats.head : mats.body;
           });
           if (c.material.length === 1) c.material = c.material[0];
           c.castShadow = c.receiveShadow = true;
           c.frustumCulled = false;
         });
-        // posisyon ng mata sa bind-space ng mesh (para sa lubog na mata)
+        // posisyon ng mata sa bind-space ng mesh (Z-up): boneInverses → bindMatrixInverse
         o.updateMatrixWorld(true);
         let skinMesh = null;
         o.traverse((c) => { if (c.isSkinnedMesh) skinMesh = c; });
         if (skinMesh) {
-          // ang geometry ay Z-up: bind pose ng buto (boneInverses) → bindMatrixInverse
           const inv = skinMesh.bindMatrixInverse.clone();
           const sk = skinMesh.skeleton;
           sk.bones.forEach((b, i) => {
@@ -1278,13 +1627,199 @@ function loadTemplate(key) {
       }, undefined, rej);
     });
   }
-  return templates[key];
+  return templates[styleKey];
+}
+
+// ---------- mga dagdag na bahagi ----------
+// Mahabang buhok (white lady / manananggal): maraming hibla na nakalaylay
+function longHair(st) {
+  const g = new THREE.Group();
+  const m = new THREE.MeshStandardMaterial({ color: C3(st.hair), roughness: 0.45, side: THREE.DoubleSide });
+  const R = rng(91);
+  const geos = [];
+  for (let i = 0; i < 70; i++) {
+    const a = (i / 70) * Math.PI * 2;
+    const front = Math.cos(a) > 0.2; // sa harap: tinatakpan ang mukha (white lady lang)
+    if (front && !st.coverFace) continue;
+    const L = front ? 0.45 + R() * 0.25 : 0.6 + R() * 0.35;
+    const strip = new THREE.PlaneGeometry(0.035 + R() * 0.02, L, 1, 6);
+    strip.translate(0, -L / 2, 0);
+    const pos = strip.attributes.position;
+    for (let k = 0; k < pos.count; k++) {
+      const t = -pos.getY(k) / L;
+      pos.setZ(k, pos.getZ(k) + Math.sin(t * 3 + i) * 0.02 + t * 0.03);
+    }
+    strip.rotateY(-a + Math.PI / 2);
+    strip.translate(Math.sin(a) * 0.085, 0.05 + R() * 0.03, Math.cos(a) * 0.1);
+    geos.push(strip);
+  }
+  const mesh2 = new THREE.Mesh(mergeGeometries(geos), m);
+  mesh2.castShadow = true;
+  g.add(mesh2);
+  return g;
+}
+// Ulo ng kabayo ng tikbalang: hinulma mula sa sphere — mahabang nguso, malalim na mata, nakangiwing ngipin
+function horseHead() {
+  const g = new THREE.Group();
+  const hide = addGrime(new THREE.MeshStandardMaterial({ color: 0x6a5648, roughness: 0.62, metalness: 0.02 }), { tex: 'bark_willow', scale: 16, bump: 3.5, grime: 1.2 });
+  const geo = new THREE.SphereGeometry(1, 48, 32);
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const t = (v.z + 1) / 2; // 0 likod → 1 nguso
+    const muzzle = THREE.MathUtils.smoothstep(t, 0.4, 0.95);
+    const tip = THREE.MathUtils.smoothstep(t, 0.85, 1.0);
+    // malapad na pisngi/panga sa likod, makitid na nguso, bilugang ilong sa dulo
+    const cheek = Math.exp(-((t - 0.35) ** 2) * 40) * Math.max(0, -v.y);
+    const w = THREE.MathUtils.lerp(0.115, 0.068, muzzle) + tip * 0.012 + cheek * 0.02;
+    const h = THREE.MathUtils.lerp(0.16, 0.088, muzzle) + tip * 0.012;
+    let x = v.x * w, y = v.y * h * (v.y < 0 ? 1 + cheek * 1.6 : 1), z = v.z * (v.z > 0 ? 0.5 : 0.17);
+    y -= muzzle * muzzle * 0.16; // nakayuko ang nguso
+    y += Math.max(0, v.y) * (1 - muzzle) * 0.025; // bukol ng noo
+    // butas sa pisngi: mga buto na lumilitaw (payat, parang bangkay)
+    x *= 1 - Math.exp(-((t - 0.55) ** 2) * 60) * 0.12;
+    // butas ng ilong
+    const nose = Math.exp(-((x * x * 200 + (y + 0.12) ** 2 * 300 + (z - 0.44) ** 2 * 400)));
+    z -= nose * 0.01;
+    p.setXYZ(i, x, y, z);
+  }
+  geo.computeVertexNormals();
+  const skull = new THREE.Mesh(geo, hide);
+  g.add(skull);
+  // panga na bumubuka
+  const jaw = new THREE.Group();
+  jaw.position.set(0, -0.06, -0.05);
+  const jg = new THREE.SphereGeometry(1, 32, 16, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55);
+  const jp = jg.attributes.position;
+  for (let i = 0; i < jp.count; i++) {
+    v.fromBufferAttribute(jp, i);
+    const t = (v.z + 1) / 2;
+    jp.setXYZ(i, v.x * THREE.MathUtils.lerp(0.11, 0.055, t), v.y * 0.05, v.z * 0.24 + 0.2 - t * t * 0.05);
+  }
+  jg.computeVertexNormals();
+  jaw.add(new THREE.Mesh(jg, hide));
+  g.add(jaw);
+  // ngipin (dilaw, magulo)
+  const toothM = new THREE.MeshStandardMaterial({ color: 0xcdbf9a, roughness: 0.35 });
+  // mga ngipin ng kabayo sa harap: patag, dilaw, nakangiwi (nakalabas ang gilagid)
+  const gum = new THREE.MeshStandardMaterial({ color: 0x5a1a1e, roughness: 0.3 });
+  const gums = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.012, 6, 16, Math.PI), gum);
+  gums.position.set(0, -0.155, 0.43);
+  gums.rotation.set(Math.PI / 2 + 0.3, 0, Math.PI);
+  g.add(gums);
+  for (let i = 0; i < 6; i++) {
+    const a = ((i + 0.5) / 6 - 0.5) * 2.2;
+    const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.03 + Math.random() * 0.01, 0.01), toothM);
+    tooth.position.set(Math.sin(a) * 0.045, -0.165, 0.43 + Math.cos(a) * 0.045);
+    tooth.rotation.set(0.25, a, (Math.random() - 0.5) * 0.3);
+    g.add(tooth);
+  }
+  // malalalim na mata na kumikinang na pula
+  const sock = new THREE.MeshStandardMaterial({ color: 0x050202, roughness: 0.9 });
+  for (const sx of [-1, 1]) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10), sock);
+    s.position.set(sx * 0.1, 0.045, 0.06);
+    g.add(s);
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.012, 10, 8), hot(5, 0.5, 0.2, { fog: false }));
+    e.position.set(sx * 0.116, 0.045, 0.068);
+    g.add(e);
+    // tainga
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.14, 8), hide);
+    ear.position.set(sx * 0.07, 0.17, -0.06);
+    ear.rotation.set(-0.3, 0, sx * -0.25);
+    g.add(ear);
+  }
+  // kiling (mane): mahahabang itim na buhok pababa sa batok
+  const mane = longHair({ hair: 0x050404 });
+  mane.position.set(0, 0.12, -0.1);
+  mane.scale.set(0.7, 1.6, 1.3);
+  g.add(mane);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  g.userData.jaw = jaw;
+  return g;
+}
+// Pakpak ng paniki: may mga buto at manipis na balat na may ugat
+const wingTex = canvasTex(512, 256, (x, W, H) => {
+  const g = x.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#2a1416');
+  g.addColorStop(1, '#140a0c');
+  x.fillStyle = g;
+  x.fillRect(0, 0, W, H);
+  const R = rng(3);
+  for (let i = 0; i < 160; i++) {
+    x.strokeStyle = `rgba(${90 + R() * 60},${10 + R() * 20},${20 + R() * 20},${0.25 + R() * 0.3})`;
+    x.lineWidth = 0.5 + R() * 1.5;
+    x.beginPath();
+    let px = R() * W, py = R() * H;
+    x.moveTo(px, py);
+    for (let k = 0; k < 6; k++) { px += (R() - 0.5) * 40; py += (R() - 0.5) * 40; x.lineTo(px, py); }
+    x.stroke();
+  }
+});
+function batWing(sx) {
+  const g = new THREE.Group();
+  const bone = new THREE.MeshStandardMaterial({ color: 0x3a2a26, roughness: 0.5 });
+  const memb = new THREE.MeshStandardMaterial({ map: wingTex, roughness: 0.5, side: THREE.DoubleSide, transparent: true, opacity: 0.94 });
+  // dulo ng mga daliri ng pakpak
+  const tips = [[1.9, 0.55], [2.25, 0.05], [1.95, -0.55], [1.25, -0.9], [0.45, -0.75]];
+  const root = new THREE.Vector3(0, 0, 0), elbow = new THREE.Vector3(0.9, 0.35, 0);
+  const pts = [];
+  const add = (a, b) => {
+    const len = a.distanceTo(b);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.022, len, 6), bone);
+    c.position.copy(a).add(b).multiplyScalar(0.5);
+    c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+    g.add(c);
+  };
+  add(root, elbow);
+  const tipV = tips.map(([x, y]) => new THREE.Vector3(x, y, 0));
+  tipV.forEach((t) => add(elbow, t));
+  // balat sa pagitan ng mga daliri (may lubog na hugis)
+  const verts = [], uvs = [];
+  const ring = [root, ...tipV];
+  for (let i = 1; i < ring.length - 1; i++) {
+    const a = elbow, b = ring[i], c = ring[i + 1];
+    const mid = b.clone().add(c).multiplyScalar(0.5).lerp(a, 0.28); // kurba papasok
+    for (const [p1, p2, p3] of [[a, b, mid], [a, mid, c]]) for (const q of [p1, p2, p3]) { verts.push(q.x, q.y, q.z); uvs.push(q.x / 2.3, (q.y + 1) / 2); }
+  }
+  for (const q of [root, elbow, tipV[4]]) { verts.push(q.x, q.y, q.z); uvs.push(q.x / 2.3, (q.y + 1) / 2); }
+  const mg = new THREE.BufferGeometry();
+  mg.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  mg.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  mg.computeVertexNormals();
+  g.add(new THREE.Mesh(mg, memb));
+  g.scale.set(sx, 1, 1);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+// Bituka na nakalawit
+function entrails() {
+  const g = new THREE.Group();
+  const m = new THREE.MeshStandardMaterial({ color: 0x5a0a14, roughness: 0.18, metalness: 0.1 });
+  const m2 = new THREE.MeshStandardMaterial({ color: 0x7a2a3a, roughness: 0.25 });
+  const R = rng(17);
+  for (let i = 0; i < 6; i++) {
+    const pts = [];
+    let x = (R() - 0.5) * 0.16, z = (R() - 0.5) * 0.1;
+    const segs = 4 + Math.floor(R() * 4);
+    for (let k = 0; k < segs; k++) {
+      pts.push(new THREE.Vector3(x, -k * 0.09, z));
+      x += (R() - 0.5) * 0.1;
+      z += (R() - 0.5) * 0.08;
+    }
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.01 + R() * 0.014, 8), i % 3 ? m : m2);
+    tube.castShadow = true;
+    g.add(tube);
+  }
+  return g;
 }
 
 function buildPerson(g, o, tpl) {
-  const key = o.key;
+  const st = STYLES[o.style];
   const model = SkeletonUtils.clone(tpl);
-  model.scale.setScalar(PERSON_SCALE);
+  const sc = PERSON_SCALE * (st.scale || 1);
+  model.scale.setScalar(sc);
+  if (o.stretch) model.scale.set(sc * o.stretch[0], sc * o.stretch[1], sc * o.stretch[0]);
   g.add(model);
   const bones = {};
   model.traverse((c) => { if (c.isBone) bones[c.name.replace('Bip01_', '')] = c; });
@@ -1294,9 +1829,8 @@ function buildPerson(g, o, tpl) {
   const hp = new THREE.Vector3();
   head.getWorldPosition(hp);
   const gp = g.getWorldPosition(new THREE.Vector3());
-  const box = new THREE.Box3().setFromObject(model);
-  const topY = box.max.y - gp.y, headY = hp.y - gp.y;
-  // ikabit sa buto: ilagay muna sa world (model space ng tauhan), saka attach
+  // tuktok ng ulo mula sa buto ng ulo (ang Box3 ng skinned mesh ay mali dahil Z-up ang geometry)
+  const headY = hp.y - gp.y, topY = headY + 0.19 * (st.scale || 1);
   const put = (bone, obj, x, y, z, rx = 0, ry = 0, rz = 0) => {
     g.add(obj);
     obj.position.set(x, y, z);
@@ -1307,13 +1841,16 @@ function buildPerson(g, o, tpl) {
     return obj;
   };
   const M = (geo, material) => new THREE.Mesh(geo, material);
+  const hairM = mat(st.hair, { rough: 0.55 });
+  if (st.bun) put(head, M(new THREE.SphereGeometry(0.055, 16, 12), hairM), 0, topY - 0.06, -0.09);
+  if (st.longHair) put(head, longHair(st), 0, topY - 0.05, -0.01);
   if (ex.includes('salakot')) put(head, M(new THREE.ConeGeometry(0.3, 0.15, 24), mat(0xc8a15a, { rough: 0.8 })), 0, topY + 0.02, 0);
   if (ex.includes('buri')) {
     put(head, M(new THREE.CylinderGeometry(0.08, 0.11, 0.1, 20), mat(0xd9b77a, { rough: 0.85 })), 0, topY + 0.01, -0.01);
     put(head, M(new THREE.CylinderGeometry(0.22, 0.22, 0.012, 24), mat(0xd9b77a, { rough: 0.85 })), 0, topY - 0.04, -0.01);
   }
   if (ex.includes('glasses')) {
-    const eyeY = headY + 0.085;
+    const eyeY = headY + 0.085 * (st.scale || 1);
     for (const sx of [-1, 1]) put(head, M(new THREE.TorusGeometry(0.021, 0.0028, 6, 20), metalMat), sx * 0.033, eyeY, 0.072);
     put(head, M(new THREE.BoxGeometry(0.022, 0.003, 0.003), metalMat), 0, eyeY + 0.004, 0.075);
   }
@@ -1323,17 +1860,31 @@ function buildPerson(g, o, tpl) {
     put(bones.Spine2, M(new THREE.BoxGeometry(0.04, 0.012, 0.006), metalMat), 0, headY - 0.285, 0.12);
   }
   if (ex.includes('towel')) put(bones.Neck, M(new THREE.TorusGeometry(0.1, 0.03, 8, 20), mat(0xffffff, { rough: 0.95 })), 0, headY - 0.12, -0.01, Math.PI / 2 + 0.25, 0, 0);
-  if (ex.includes('flower')) put(head, M(new THREE.SphereGeometry(0.028, 12, 10), mat(0xffffff, { rough: 0.6 })), 0.08, topY - 0.06, 0.03);
+  if (ex.includes('flower')) put(head, M(new THREE.SphereGeometry(0.025, 12, 10), mat(0xff5a8a, { rough: 0.6 })), 0.08, topY - 0.06, 0.03);
   if (ex.includes('curlers')) for (const x of [-0.04, 0, 0.04]) put(head, M(new THREE.CylinderGeometry(0.018, 0.018, 0.06, 10), mat(0xf48fb1, { rough: 0.4 })), x, topY - 0.01, 0.02, 0, 0, Math.PI / 2);
-  if (ex.includes('apron')) put(bones.Pelvis, M(new THREE.BoxGeometry(0.32, 0.5, 0.01), mat(0x5fa8d3, { rough: 0.9 })), 0, headY - 0.75, 0.13, -0.05, 0, 0);
+  if (ex.includes('apron')) put(bones.Pelvis, M(new THREE.BoxGeometry(0.32, 0.5, 0.01), mat(0xf4f0e6, { rough: 0.9 })), 0, headY - 0.75, 0.13, -0.05, 0, 0);
+  if (ex.includes('pamaypay')) put(bones.R_Hand, M(new THREE.CircleGeometry(0.13, 18, 0, Math.PI), mat(0xd9b77a, { rough: 0.7 })), -0.0, headY - 0.75, 0.15, 0, 0, Math.PI / 2);
+  if (st.dress > 8 && st.bottom == null) {
+    // palda ng daster: mula baywang hanggang ibaba ng tuhod
+    const sc0 = PERSON_SCALE * (st.scale || 1);
+    const waist = 98 * sc0, hem = st.dress * sc0;
+    const prof = [[0.14, waist + 0.04], [0.165, waist - 0.05], [0.19, waist - 0.25], [0.215, (waist + hem) / 2], [0.235, hem]].map(([x, y]) => new THREE.Vector2(x * (st.scale || 1), y));
+    const sk = M(new THREE.LatheGeometry(prof, 32), dressMat(st));
+    sk.scale.z = 0.8;
+    put(bones.Pelvis, sk, 0, 0, 0.005);
+  }
+  let horse = null;
+  if (st.headCut) {
+    horse = horseHead();
+    const hs = st.scale || 1;
+    horse.scale.setScalar(hs * 1.15);
+    put(head, horse, 0, headY + 0.1 * hs, 0.06 * hs, 0.45, 0, 0); // nakayuko
+  }
   let torch = false;
   if (ex.includes('torch')) {
-    // sulo sa kamay, nakaturo palabas kasunod ng bisig
-    const hand = bones.R_Hand, fore = bones.R_Forearm;
-    const a = new THREE.Vector3(), b = new THREE.Vector3();
-    fore.getWorldPosition(a);
+    const hand = bones.R_Hand;
+    const b = new THREE.Vector3();
     hand.getWorldPosition(b);
-    const dir = b.clone().sub(a).normalize();
     const t = new THREE.Group();
     const stick = M(new THREE.CylinderGeometry(0.018, 0.026, 0.8, 8), mat(0x4a2a12, { rough: 0.9 }));
     stick.position.y = 0.25;
@@ -1342,22 +1893,21 @@ function buildPerson(g, o, tpl) {
     f.position.y = 0.8;
     t.add(f);
     flames.push(f);
-    // nananatiling patayo ang sulo; sinusundan lang ang kamay bawat frame (tingnan ang humanTick)
     g.add(t);
     t.position.copy(g.worldToLocal(b.clone()));
     torch = { obj: t, hand };
   }
-  // animasyon
-  const sex = GENDER[key] || 'm';
+  const sex = st.sex;
   const mixer = new THREE.AnimationMixer(model);
-  const rig = { model, bones, mixer, sex, actions: {}, cur: null, kind: 'idle', timer: 2 + Math.random() * 6, look: 0, lookP: 0, eyeL: 0, blink: 2 + Math.random() * 4, twitch: 4 + Math.random() * 8, tw: 0, headY, topY, torch, talkT: 0 };
+  const rig = { model, bones, mixer, sex, actions: {}, cur: null, kind: 'idle', timer: 2 + Math.random() * 6, look: 0, lookP: 0, blink: 2 + Math.random() * 4, twitch: 4 + Math.random() * 8, tw: 0, headY, topY, torch, talkT: 0, hunch: st.hunch || 0, horse, style: o.style };
   g.userData.rig = rig;
   g.userData.parts = null;
-  const names = [...ANIMS[sex].idle, ...ANIMS[sex].talk, ...(o.crowd ? ANIMS[sex].angry : [])];
+  const names = [...ANIMS[sex].idle, ...ANIMS[sex].talk, ...(o.crowd || o.angry ? ANIMS[sex].angry : [])];
   Promise.all(names.map(loadClip)).then((clips) => {
     clips.forEach((c) => (rig.actions[c.name] = mixer.clipAction(c)));
-    playClip(rig, o.crowd ? pick(ANIMS[sex].angry) : ANIMS[sex].idle[0], 0);
+    playClip(rig, o.crowd || o.angry ? pick(ANIMS[sex].angry) : ANIMS[sex].idle[0], 0);
   });
+  if (g.userData.onRig) g.userData.onRig(rig);
 }
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 function playClip(rig, name, fade = 0.5) {
@@ -1370,9 +1920,9 @@ function playClip(rig, name, fade = 0.5) {
   rig.cur = a;
 }
 
-// Bawat frame: pagpili ng galaw, titig sa player, kurap, ngisi, kislot
+// Bawat frame: galaw, titig sa player, kurap, ngisi, kislot
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
-const _ax = new THREE.Vector3(), _vh = new THREE.Vector3();
+const _ax = new THREE.Vector3(), _vh = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 function rotWorld(b, axis, ang) {
   if (!b || Math.abs(ang) < 1e-4) return;
   b.getWorldQuaternion(_qa);
@@ -1381,11 +1931,15 @@ function rotWorld(b, axis, ang) {
   b.quaternion.copy(_qc.invert().multiply(_qa));
   b.updateMatrixWorld(true);
 }
+function worldYaw(n) {
+  let y = 0;
+  for (let o = n; o && o !== scene; o = o.parent) y += o.rotation.y;
+  return y;
+}
 function humanTick(n, dt, s = {}) {
   const r = n.userData.rig;
   if (!r) return;
   const A = ANIMS[r.sex];
-  // pagpili ng clip
   const want = s.crowd ? 'angry' : s.talking ? 'talk' : 'idle';
   r.timer -= dt;
   if (want !== r.kind || r.timer <= 0) {
@@ -1393,60 +1947,62 @@ function humanTick(n, dt, s = {}) {
     r.timer = want === 'idle' ? 6 + Math.random() * 9 : 4 + Math.random() * 4;
     playClip(r, pick(A[want] || A.idle));
   }
-  if (r.cur) r.cur.timeScale = s.crowd ? 1.1 : 0.85 - creep.value * 0.2; // mas mabagal at mabigat sa gabi
+  if (r.cur) r.cur.timeScale = s.crowd ? 1.1 : 0.85 - creep.value * 0.2;
   r.mixer.update(dt);
   r.model.updateMatrixWorld(true);
+  const B = r.bones;
+  const facing = worldYaw(n);
+  const live = !!r.cur;
+  // ang mata ay walang track: ibalik muna sa orihinal
+  for (const e of [B.LEye, B.REye]) { if (!e) continue; if (!e.userData.q0) e.userData.q0 = e.quaternion.clone(); e.quaternion.copy(e.userData.q0); }
+  // kuba (lola, tikbalang)
+  if (r.hunch && live) {
+    _ax.set(Math.cos(facing), 0, -Math.sin(facing));
+    rotWorld(B.Spine1, _ax, r.hunch * 0.6);
+    rotWorld(B.Neck, _ax, -r.hunch * 0.4);
+  }
   if (r.torch) {
     r.torch.hand.getWorldPosition(_vh);
     r.torch.obj.position.copy(n.worldToLocal(_vh)).add(new THREE.Vector3(0, -0.15, 0));
     const tt = performance.now() / 700 + n.id;
     r.torch.obj.rotation.set(Math.sin(tt) * 0.12, 0, Math.cos(tt * 1.3) * 0.12);
   }
-  // titig: ulo at mata papunta sa camera
-  const B = r.bones;
-  if (s.stare !== false && B.Head) {
+  if (s.stare !== false && B.Head && live) {
     B.Head.getWorldPosition(_vh);
     const dx = camera.position.x - _vh.x, dz = camera.position.z - _vh.z, dy = camera.position.y - _vh.y;
-    const facing = n.rotation.y + (n.parent && n.parent !== scene ? n.parent.rotation.y : 0);
     let yaw = Math.atan2(dx, dz) - facing;
     yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
     const close = Math.hypot(dx, dz) < (s.range || 14);
     const tYaw = close ? Math.max(-1.2, Math.min(1.2, yaw)) : 0;
-    const tPitch = close ? Math.max(-0.4, Math.min(0.4, Math.atan2(dy, Math.hypot(dx, dz)))) : 0;
-    // biglang lingon (hindi natural) kapag gabi
+    const tPitch = close ? Math.max(-0.5, Math.min(0.5, Math.atan2(dy, Math.hypot(dx, dz)))) : 0;
     const sp = 2 + creep.value * 6;
     r.look = lerp(r.look, tYaw, Math.min(1, dt * sp));
     r.lookP = lerp(r.lookP, tPitch, Math.min(1, dt * sp));
-    _ax.set(0, 1, 0);
-    rotWorld(B.Neck, _ax, r.look * 0.45);
-    rotWorld(B.Head, _ax, r.look * 0.55);
+    rotWorld(B.Neck, _up, r.look * 0.45);
+    rotWorld(B.Head, _up, r.look * 0.55);
     _ax.set(Math.cos(facing + r.look), 0, -Math.sin(facing + r.look));
     rotWorld(B.Head, _ax, -r.lookP * 0.8);
-    // kislot ng ulo / pagkiling (gabi)
     r.twitch -= dt;
     if (r.twitch < 0) { r.twitch = 3 + Math.random() * (10 - creep.value * 6); r.tw = 0.18; }
+    _ax.set(Math.sin(facing), 0, Math.cos(facing));
     if (r.tw > 0) {
       r.tw -= dt;
-      _ax.set(Math.sin(facing), 0, Math.cos(facing));
-      rotWorld(B.Head, _ax, Math.sin(r.tw * 60) * 0.12 * creep.value);
+      rotWorld(B.Head, _ax, Math.sin(r.tw * 60) * 0.12 * Math.max(creep.value, r.horse ? 1 : 0));
     }
-    _ax.set(Math.sin(facing), 0, Math.cos(facing));
-    rotWorld(B.Head, _ax, creep.value * 0.18 * Math.sin(performance.now() / 4000 + n.id)); // nakakiling na ulo
-    // mata: sumusunod din
-    for (const e of [B.LEye, B.REye]) rotWorld(e, new THREE.Vector3(0, 1, 0), Math.max(-0.35, Math.min(0.35, yaw - r.look)));
+    rotWorld(B.Head, _ax, creep.value * 0.18 * Math.sin(performance.now() / 4000 + n.id));
+    for (const e of [B.LEye, B.REye]) rotWorld(e, _up, Math.max(-0.35, Math.min(0.35, yaw - r.look)));
   }
-  // kurap: bihira, at sa gabi halos hindi na (nakadilat nang malaki)
+  // kurap: bihira; sa gabi nakadilat nang malaki
   r.blink -= dt;
   if (r.blink < 0) r.blink = 3 + Math.random() * 5 + creep.value * 8;
   const closing = r.blink < 0.11;
-  for (const [bn, sgn] of [['LEyeBlinkTop', -1], ['REyeBlinkTop', -1]]) {
+  for (const bn of ['LEyeBlinkTop', 'REyeBlinkTop']) {
     const b = B[bn];
     if (!b) continue;
     if (!b.userData.base) b.userData.base = b.position.clone();
     b.position.copy(b.userData.base);
-    b.position.y -= closing ? sgn * 0.9 : creep.value * 0.3;
+    b.position.y += closing ? 0.9 : -creep.value * 0.3;
   }
-  // bibig: gumagalaw kapag nagsasalita; ngisi sa gabi
   r.talkT += dt;
   for (const [bn, sx] of [['LMouthCorner', 1], ['RMouthCorner', -1]]) {
     const b = B[bn];
@@ -1464,6 +2020,8 @@ function humanTick(n, dt, s = {}) {
     b.position.copy(b.userData.base);
     if (s.talking) b.position.y += Math.abs(Math.sin(r.talkT * 13 + Math.sin(r.talkT * 4) * 2)) * 0.35;
   }
+  // panga ng kabayo
+  if (r.horse) r.horse.userData.jaw.rotation.x = 0.08 + Math.max(0, Math.sin(r.talkT * 2.3)) * 0.35 + (s.talking ? Math.abs(Math.sin(r.talkT * 9)) * 0.25 : 0);
 }
 
 // person(): agad nagbabalik ng Group; ang katawan ay ilalagay kapag na-load na
@@ -1471,9 +2029,9 @@ function person(o) {
   const g = new THREE.Group();
   g.userData.o = o;
   g.userData.parts = null;
-  const key = o.key && GENDER[o.key] ? o.key : 'v2';
-  loadTemplate(key).then((tpl) => buildPerson(g, Object.assign({}, o, { key }), tpl)).catch((e) => {
-    console.warn('person fallback', key, e);
+  const style = o.style && STYLES[o.style] ? o.style : o.key && STYLES[o.key] ? o.key : 'v2';
+  loadTemplate(style).then((tpl) => buildPerson(g, Object.assign({}, o, { style }), tpl)).catch((e) => {
+    console.warn('person fallback', style, e);
     const s = personSimple(o);
     for (const c of [...s.children]) g.add(c);
     g.userData.parts = s.userData.parts;
@@ -1485,44 +2043,51 @@ function person(o) {
 // Larawan ng mukha para sa dialogue box: kinukunan ang totoong 3D na tauhan
 let portraitRenderer = null;
 const portraitCacheW = {};
-function portraitOf(id) {
-  const ck = id + (creep.value > 0.6 ? ':n' : ':d'); // iba ang mukha sa gabi
+function portraitSource(id) {
+  if (id === 'you') return player;
+  if (id === 'manananggal') return mng && mng.userData.body;
+  if (id === 'whitelady') return scareActors.whitelady;
+  return npcs[id];
+}
+function portraitOf(id, w = 256, h = 288) {
+  const ck = id + (creep.value > 0.6 ? ':n' : ':d') + w;
   if (portraitCacheW[ck]) return portraitCacheW[ck];
-  const src = id === 'you' ? player : npcs[id];
+  const src = portraitSource(id);
   if (!src || !src.userData.rig) return null;
   try {
     if (!portraitRenderer) {
       portraitRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-      portraitRenderer.setSize(256, 288, false);
       portraitRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-      portraitRenderer.toneMappingExposure = 1.0;
     }
+    portraitRenderer.setSize(w, h, false);
     const ps = new THREE.Scene();
-    ps.background = new THREE.Color(0x0c0808);
-    ps.fog = new THREE.Fog(0x0c0808, 1.2, 2.6);
-    ps.add(new THREE.HemisphereLight(0xd8e0e8, 0x201010, 0.7));
-    const key = new THREE.DirectionalLight(0xffe0c0, 2.6);
-    key.position.set(0.8, 0.3, 1.6); // ilaw mula sa ibaba-gilid, parang flashlight
-    const rim = new THREE.DirectionalLight(0x8fa4ff, 1.8);
-    rim.position.set(-2, 2.2, -1.5);
+    ps.background = new THREE.Color(0x0a0606);
+    ps.fog = new THREE.Fog(0x0a0606, 1.2, 3.2);
+    ps.add(new THREE.HemisphereLight(0xd8e0e8, 0x201010, 0.6));
+    const key = new THREE.DirectionalLight(0xffe0c0, 2.8);
+    const rim = new THREE.DirectionalLight(0xff3a2a, 1.6);
+    rim.position.set(-2, 1.4, -1.5);
     ps.add(key, rim);
-    // ang modelo lang (hindi ang Group na may rig sa userData — circular iyon)
     const c = SkeletonUtils.clone(src.userData.rig.model);
     c.position.set(0, 0, 0);
     c.rotation.set(0, 0, 0);
-    c.visible = true;
     ps.add(c);
+    c.updateMatrixWorld(true);
+    // tuwid na pose (nakaharap sa camera), hindi ang kasalukuyang galaw
+    c.traverse((o) => { if (o.isSkinnedMesh) o.skeleton.pose(); });
     c.updateMatrixWorld(true);
     let hb = null;
     c.traverse((b) => { if (b.isBone && /Bip01_Head$/.test(b.name)) hb = b; });
     const hp = hb ? hb.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, 1.62, 0);
-    const cam = new THREE.PerspectiveCamera(20, 256 / 288, 0.05, 20);
-    cam.position.set(hp.x + 0.12, hp.y + 0.1, hp.z + 0.95);
-    cam.lookAt(hp.x, hp.y + 0.06, hp.z);
+    const tall = src.userData.rig.horse ? 0.12 : 0;
+    const cam = new THREE.PerspectiveCamera(src.userData.rig.horse ? 30 : 20, w / h, 0.05, 20);
+    cam.position.set(hp.x + 0.12, hp.y + 0.1 + tall, hp.z + 0.95 + tall * 2);
+    cam.lookAt(hp.x, hp.y + 0.06 + tall, hp.z);
+    key.position.set(hp.x + 0.6, hp.y - 0.4, hp.z + 1.5); // ilaw mula sa ibaba, parang flashlight
     key.target.position.copy(hp);
     ps.add(key.target);
     portraitRenderer.render(ps, cam);
-    portraitCacheW[ck] = portraitRenderer.domElement.toDataURL('image/jpeg', 0.92);
+    portraitCacheW[ck] = portraitRenderer.domElement.toDataURL('image/jpeg', 0.9);
     return portraitCacheW[ck];
   } catch (e) {
     console.warn('portrait', e);
@@ -1530,109 +2095,21 @@ function portraitOf(id) {
   }
 }
 
-// Ang tikbalang: payat, matangkad, nakakuba, mahabang mukha ng kabayo,
-// nagliliyab na mata, at mga ngiping nakalabas. Hindi siya nakakatawa.
+// ---------------- Mga nilalang ----------------
+// Tikbalang: payat at napakatangkad na katawan (mahahabang biyas), ulo ng kabayo
 function tikbalangModel() {
-  const g = new THREE.Group();
-  const parts = {};
-  const c = 0x1c1410, hc = 0x2a1d15, bone = 0xcfc4a8;
-  const limb = (x, y, w, h, d, color = c) => {
-    const p = new THREE.Group();
-    p.position.set(x, y, 0);
-    g.add(p);
-    box(p, w, h, d, color, 0, -h / 2, 0);
-    return p;
-  };
-  // mahahabang binti na parang sa kabayo (nakabaluktot pabalik)
-  parts.legL = limb(-0.28, 2.1, 0.24, 1.2, 0.3);
-  parts.legR = limb(0.28, 2.1, 0.24, 1.2, 0.3);
-  for (const L of [parts.legL, parts.legR]) {
-    box(L, 0.2, 1.0, 0.24, c, 0, -1.55, -0.28, { rx: -0.35 });
-    box(L, 0.34, 0.28, 0.42, 0x0a0a0a, 0, -2.0, -0.2);
-  }
-  // payat na katawan, nakausling tadyang, nakakuba
-  const torso = new THREE.Group();
-  torso.position.set(0, 2.2, 0);
-  torso.rotation.x = 0.28;
-  g.add(torso);
-  parts.torso = torso;
-  box(torso, 0.8, 1.4, 0.42, c, 0, 0.7, 0);
-  for (let i = 0; i < 6; i++) box(torso, 0.7 - Math.abs(i - 2.5) * 0.06, 0.05, 0.03, 0x3a2c22, 0, 0.35 + i * 0.16, 0.22);
-  box(torso, 0.08, 1.1, 0.04, 0x3a2c22, 0, 0.75, 0.22); // gulugod sa harap
-  // napakahabang braso na umaabot sa tuhod, may kuko
-  parts.armL = limb(-0.55, 3.35, 0.18, 2.3, 0.2);
-  parts.armR = limb(0.55, 3.35, 0.18, 2.3, 0.2);
-  for (const A of [parts.armL, parts.armR]) for (const x of [-0.07, 0, 0.07]) box(A, 0.03, 0.35, 0.03, bone, x, -2.45, 0.05, { rx: 0.4 });
-  // leeg at ulo ng kabayo
-  const head = new THREE.Group();
-  head.position.set(0, 3.75, 0.35);
-  g.add(head);
-  parts.head = head;
-  box(head, 0.22, 0.6, 0.26, c, 0, -0.35, -0.1, { rx: -0.4 }); // leeg
-  box(head, 0.46, 0.55, 0.62, hc, 0, 0.1, 0);
-  box(head, 0.36, 0.34, 0.75, hc, 0, -0.05, 0.62); // nguso
-  const jaw = new THREE.Group();
-  jaw.position.set(0, -0.24, 0.3);
-  head.add(jaw);
-  parts.jaw = jaw;
-  box(jaw, 0.32, 0.1, 0.7, 0x1a120c, 0, 0, 0.3);
-  // mga ngipin
-  for (let i = 0; i < 6; i++) {
-    box(head, 0.04, 0.12, 0.04, bone, -0.13 + (i % 3) * 0.13, -0.24, 0.45 + Math.floor(i / 3) * 0.3);
-    box(jaw, 0.04, 0.1, 0.04, bone, -0.12 + (i % 3) * 0.12, 0.08, 0.2 + Math.floor(i / 3) * 0.3);
-  }
-  box(head, 0.06, 0.06, 0.02, 0x000000, -0.1, 0.02, 0.99);
-  box(head, 0.06, 0.06, 0.02, 0x000000, 0.1, 0.02, 0.99);
-  box(head, 0.09, 0.3, 0.09, hc, -0.16, 0.5, -0.15, { rz: 0.2 });
-  box(head, 0.09, 0.3, 0.09, hc, 0.16, 0.5, -0.15, { rz: -0.2 });
-  // nagliliyab na mata (may halo na hindi natatakpan ng hamog)
-  const eye = basic(0xff2a1a, { fog: false });
-  box(head, 0.1, 0.08, 0.12, 0, -0.24, 0.2, 0.22, { material: eye, cast: false });
-  box(head, 0.1, 0.08, 0.12, 0, 0.24, 0.2, 0.22, { material: eye, cast: false });
-  const glowMat = new THREE.SpriteMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.55, depthWrite: false, fog: false, blending: THREE.AdditiveBlending });
-  for (const x of [-0.26, 0.26]) {
-    const sp = new THREE.Sprite(glowMat);
-    sp.scale.set(0.45, 0.45, 1);
-    sp.position.set(x, 0.2, 0.26);
-    head.add(sp);
-  }
-  parts.eyeGlow = glowMat;
-  // gusot na itim na kiling at tatlong gintong buhok
-  box(head, 0.14, 0.7, 0.9, 0x050505, 0, 0.32, -0.25);
-  box(g, 0.22, 1.2, 0.3, 0x050505, 0, 3.2, -0.2, { rx: 0.3 });
-  const gold = basic(0xffd54a);
-  box(g, 0.035, 0.55, 0.035, 0, -0.07, 3.25, -0.4, { material: gold, rx: 0.3 });
-  box(g, 0.035, 0.55, 0.035, 0, 0.0, 3.05, -0.42, { material: gold, rx: 0.3 });
-  box(g, 0.035, 0.55, 0.035, 0, 0.07, 3.35, -0.38, { material: gold, rx: 0.3 });
-  g.scale.setScalar(1.25);
-  g.userData.parts = parts;
-  g.userData.radius = 0.9;
+  const g = person({ style: 'tik', angry: true });
+  g.userData.radius = 1.4;
   g.userData.tall = true;
-  g.userData.headY = 3.85;
+  g.userData.headY = 3.7;
   g.userData.twitch = 0;
   return g;
 }
-// Paggalaw: humihinga, nanginginig ang ulo, biglang kumikislot
 function animateTikbalang(n, time, dt) {
-  const p = n.userData.parts;
-  p.torso.rotation.x = 0.28 + Math.sin(time * 1.1) * 0.04;
-  p.armL.rotation.x = Math.sin(time * 0.9) * 0.08;
-  p.armR.rotation.x = -Math.sin(time * 0.9 + 1) * 0.08;
-  p.armL.rotation.z = -0.06;
-  p.armR.rotation.z = 0.06;
-  p.jaw.rotation.x = 0.1 + Math.max(0, Math.sin(time * 2.3)) * 0.25;
-  n.userData.twitch -= dt;
-  if (n.userData.twitch <= 0) {
-    n.userData.twitch = 0.6 + Math.random() * 2.2;
-    n.userData.twitchRot = (Math.random() - 0.5) * 1.1;
-    n.userData.twitchTime = 0.18;
+  if (n.userData.rig) {
+    n.userData.rig.hunch = 0.35;
+    humanTick(n, dt, { range: 30 });
   }
-  if (n.userData.twitchTime > 0) {
-    n.userData.twitchTime -= dt;
-    p.head.rotation.z = n.userData.twitchRot;
-  } else p.head.rotation.z = lerp(p.head.rotation.z, Math.sin(time * 0.7) * 0.15, Math.min(1, dt * 3));
-  p.eyeGlow.opacity = 0.45 + Math.sin(time * 6) * 0.15;
-  // mabigat na paghinga kapag malapit ka
   const d = Math.hypot(n.position.x - player.position.x, n.position.z - player.position.z);
   n.userData.breath = (n.userData.breath ?? 0) - dt;
   if (d < 14 && n.userData.breath <= 0 && window.Sound) {
@@ -1860,7 +2337,7 @@ scene.add(marker);
 //  MGA LUGAR (x, z, harap)
 // ============================================================
 const ANCH = {
-  start: [2, 36, Math.PI],
+  start: [2, 36, -1.747], // nakaharap kay Lola sa hintayan
   shed_lola: [-12, 33.5],
   house_lola: [-21, 11.5],
   house_kapitan: [-18.2, 9.2],
@@ -1939,7 +2416,7 @@ function stepTime(t) {
   stars.material.opacity = cur.night * (1 - Math.min(1, (60 - Math.min(60, cur.far)) / 30));
   moon.material.opacity = cur.night > 0.6 && cur.far > 60 ? cur.night : 0;
   fireflies.material.opacity = cur.night * 0.9;
-  for (const m of glowMats) m.emissiveIntensity = cur.night * 1.6;
+  for (const m of glowMats) m.emissiveIntensity = cur.night * 0.75;
   bloodGroup.visible = cur.night > 0.55;
   creep.value = 0.35 + cur.night * 0.65;
   for (const n of nightLights) n.light.intensity = cur.night * n.max;
@@ -2305,6 +2782,7 @@ function npcBrain(n, id, dt, time, dist, faceAng, canWander, range = 1.6) {
 function update(dt, time) {
   const mode = window.Game ? Game.mode : 'title';
   stepTime(Math.min(1, dt * 1.2));
+  updateIntro(dt);
 
   // ---- galaw ng player ----
   checkStuckKeys(mode);
@@ -2348,7 +2826,7 @@ function update(dt, time) {
     const dx = player.position.x - n.position.x, dz = player.position.z - n.position.z;
     const dist = Math.hypot(dx, dz);
     const p = n.userData.parts;
-    if (scareHold > 0 && n === npcs.tikbalang) {
+    if (scareHold > 0 && scareRestore && n === scareRestore.n) {
       // nakaharap sa camera habang nanggugulat
       n.rotation.y = Math.atan2(camera.position.x - n.position.x, camera.position.z - n.position.z);
     } else if (n.userData.tall) {
@@ -2356,7 +2834,7 @@ function update(dt, time) {
     } else {
       npcBrain(n, id, dt, time, dist, Math.atan2(dx, dz), calm);
     }
-    if (p && n.userData.tall) animateTikbalang(n, time, dt);
+    if (n.userData.tall) animateTikbalang(n, time, dt);
   }
   if (villagers.visible) for (const v of villagers.children) npcBrain(v, null, dt, time, v.position.distanceTo(player.position), Math.atan2(player.position.x - v.position.x, player.position.z - v.position.z), mode === 'explore' || mode === 'title', 3.5);
   if (crowd.visible) {
@@ -2381,12 +2859,18 @@ function update(dt, time) {
   for (const f of flames) f.scale.set(1, 0.75 + Math.random() * 0.5, 1);
   if (scareHold > 0) {
     scareHold -= dt;
-    const n = npcs.tikbalang;
-    n.position.y = Math.sin(time * 40) * 0.05 + scareRestore.y;
+    const n = scareRestore.n, f = scareRestore.f;
+    const k = 1 - scareHold; // 0 → 1
+    const dist = 1.7 - Math.min(1, k * 2.2) * 1.15; // sumusugod
+    n.position.set(camera.position.x + f.x * dist + Math.sin(time * 47) * 0.03, Math.sin(time * 40) * 0.04 + scareRestore.y, camera.position.z + f.z * dist);
+    if (n.userData.rig) humanTick(n, dt, { crowd: true, range: 40 });
+    scareLight.position.set(camera.position.x + f.x * (dist - 0.5), camera.position.y - 0.2, camera.position.z + f.z * (dist - 0.5));
+    scareLight.intensity = Math.random() < 0.45 ? 0.4 : 3.5;
     if (scareHold <= 0) {
       n.visible = scareRestore.v;
       n.position.copy(scareRestore.p);
       n.rotation.y = scareRestore.r;
+      scareLight.intensity = 0;
     }
   }
   if (crowd.visible) crowdLight.intensity = 10 + Math.random() * 3;
@@ -2581,60 +3065,105 @@ const PATROL = [[15, 0], [-20, 10], [-36, -26], [0, -38], [30, 20], [8, 34], [45
 const distXZ = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 function buildManananggal() {
+  // Itaas na katawan ng babae na putol sa baywang, may bituka, pakpak ng paniki at mahabang buhok
   mng = new THREE.Group();
-  const skin = 0xd8d0c8, hair = 0x0a0a0a;
-  box(mng, 0.7, 0.75, 0.4, skin, 0, 0, 0);
-  box(mng, 0.72, 0.16, 0.42, 0x7a0000, 0, -0.43, 0);
-  for (let i = 0; i < 5; i++) box(mng, 0.08, 0.45 + (i % 3) * 0.25, 0.08, i % 2 ? 0xa01010 : 0x6a0000, -0.24 + i * 0.12, -0.7 - (i % 3) * 0.12, (i % 2) * 0.08 - 0.04);
-  const armL = box(mng, 0.18, 0.8, 0.2, skin, -0.47, -0.05, 0.25);
-  const armR = box(mng, 0.18, 0.8, 0.2, skin, 0.47, -0.05, 0.25);
-  armL.rotation.x = armR.rotation.x = -1.1;
-  const head = new THREE.Group();
-  head.position.set(0, 0.68, 0);
-  mng.add(head);
-  box(head, 0.5, 0.55, 0.5, skin, 0, 0, 0);
-  box(head, 0.56, 0.3, 0.56, hair, 0, 0.22, -0.02);
-  box(head, 0.6, 1.2, 0.14, hair, 0, -0.3, -0.28);
-  box(head, 0.1, 0.9, 0.4, hair, -0.29, -0.2, -0.05);
-  box(head, 0.1, 0.9, 0.4, hair, 0.29, -0.2, -0.05);
-  const eye = basic(0xff2020, { fog: false });
-  box(head, 0.11, 0.08, 0.04, 0, -0.12, 0.05, 0.26, { material: eye, cast: false });
-  box(head, 0.11, 0.08, 0.04, 0, 0.12, 0.05, 0.26, { material: eye, cast: false });
-  box(head, 0.24, 0.1, 0.04, 0x3a0000, 0, -0.15, 0.26);
-  box(head, 0.04, 0.09, 0.03, 0xffffff, -0.07, -0.2, 0.28);
-  box(head, 0.04, 0.09, 0.03, 0xffffff, 0.07, -0.2, 0.28);
-  // pakpak ng paniki
-  const wingMat = addGrime(new THREE.MeshStandardMaterial({ color: 0x2a1a22, roughness: 0.45, side: THREE.DoubleSide }), { grime: 0.8 });
-  const wingGeo = new THREE.BufferGeometry();
-  wingGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0.3, 0, 2.6, 0.7, 0, 2.3, -0.4, 0, 0, 0.3, 0, 2.3, -0.4, 0, 1.3, -0.8, 0, 0, 0.3, 0, 1.3, -0.8, 0, 0.3, -0.45, 0], 3));
-  wingGeo.computeVertexNormals();
+  const body = person({ style: 'mng', angry: true });
+  body.position.set(0, -1.0, 0);
+  mng.add(body);
+  mng.userData.body = body;
+  const guts = entrails();
+  guts.position.set(0, 0.04, 0);
+  mng.add(guts);
+  mng.userData.guts = guts;
+  // patak ng dugo mula sa hiwa
+  const drip = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.6, 4), new THREE.MeshBasicMaterial({ color: 0x400006 }));
+  drip.position.set(0.04, -0.3, 0.02);
+  mng.add(drip);
   const wl = new THREE.Group(), wr = new THREE.Group();
-  wl.position.set(-0.3, 0.2, -0.2);
-  wr.position.set(0.3, 0.2, -0.2);
-  const ml = new THREE.Mesh(wingGeo, wingMat);
-  ml.scale.x = -1;
-  wl.add(ml);
-  wr.add(new THREE.Mesh(wingGeo, wingMat));
+  wl.position.set(-0.1, 0.42, -0.12);
+  wr.position.set(0.1, 0.42, -0.12);
+  wl.add(batWing(-1));
+  wr.add(batWing(1));
   mng.add(wl, wr);
   mng.userData.wl = wl;
   mng.userData.wr = wr;
-  mng.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   mng.visible = false;
   scene.add(mng);
 
+  // Ang naiwang ibabang katawan: nakatayo sa dilim, bukas ang hiwa
   lowerBody = new THREE.Group();
-  box(lowerBody, 0.74, 0.55, 0.44, 0x3b3b4a, 0, 1.08, 0);
-  box(lowerBody, 0.76, 0.12, 0.46, 0x7a0000, 0, 1.4, 0);
-  box(lowerBody, 0.26, 0.82, 0.28, skin, -0.16, 0.41, 0);
-  box(lowerBody, 0.26, 0.82, 0.28, skin, 0.16, 0.41, 0);
-  box(lowerBody, 0.3, 0.1, 0.36, 0x2b1d14, -0.16, 0.05, 0.04);
-  box(lowerBody, 0.3, 0.1, 0.36, 0x2b1d14, 0.16, 0.05, 0.04);
-  // mantsa ng dugo sa lupa (hindi kumikinang)
+  const legs = person({ style: 'mngLow' });
+  lowerBody.add(legs);
+  lowerBody.userData.legs = legs;
+  const gl = entrails();
+  gl.scale.set(0.8, 0.35, 0.8);
+  gl.position.set(0, 1.08, 0);
+  gl.rotation.x = Math.PI;
+  lowerBody.add(gl);
   bloodFloor('splat', 0.2, 0.1, 2.2, 2.2, 0.6, lowerBody, 0.03);
   bloodFloor('drag', 1.6, 1.4, 0.9, 3, 2.4, lowerBody, 0.03);
   lowerBody.visible = false;
   scene.add(lowerBody);
+  // i-load na agad ang mga panakot para handa sa jumpscare
+  setTimeout(() => { scareActorFor('whitelady'); scareActorFor('sakristan'); }, 0);
 }
+// Mga panakot na wala sa listahan ng NPC
+const scareActors = {};
+function sheetGhost() {
+  // kumot na multo (kalokohan ng sakristan... pero nakakatakot pa rin sa dilim)
+  const g = new THREE.Group();
+  const prof = [];
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20, y = 1.85 - t * 1.85;
+    const r = t < 0.15 ? Math.sin((t / 0.15) * Math.PI / 2) * 0.17 : 0.17 + (t - 0.15) * 0.38;
+    prof.push(new THREE.Vector2(Math.max(0.001, r), y));
+  }
+  const geo = new THREE.LatheGeometry(prof, 40);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i), a = Math.atan2(p.getZ(i), p.getX(i));
+    const k = Math.max(0, 1.4 - y) * 0.06;
+    p.setX(i, p.getX(i) + Math.sin(a * 7 + y * 4) * k);
+    p.setZ(i, p.getZ(i) + Math.cos(a * 5 + y * 3) * k);
+  }
+  geo.computeVertexNormals();
+  const cloth = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.95, side: THREE.DoubleSide }));
+  cloth.castShadow = true;
+  g.add(cloth);
+  const hole = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.CircleGeometry(0.035, 16), hole);
+    e.position.set(sx * 0.06, 1.72, 0.165);
+    e.scale.y = 1.4;
+    g.add(e);
+  }
+  return g;
+}
+function scareActorFor(type) {
+  if (type === 'tikbalang') return npcs.tikbalang;
+  if (type === 'manananggal') return mng;
+  if (type === 'beth') return npcs.beth;
+  if (type === 'whitelady') {
+    if (!scareActors.whitelady) {
+      scareActors.whitelady = person({ style: 'whitelady' });
+      scareActors.whitelady.visible = false;
+      scene.add(scareActors.whitelady);
+    }
+    return scareActors.whitelady;
+  }
+  if (type === 'sakristan') {
+    if (!scareActors.sheet) {
+      scareActors.sheet = sheetGhost();
+      scareActors.sheet.visible = false;
+      scene.add(scareActors.sheet);
+    }
+    return scareActors.sheet;
+  }
+  return null;
+}
+const scareLight = new THREE.PointLight(0xff1a10, 0, 5, 1.8);
+scene.add(scareLight);
+const SCARE_HEAD = { tikbalang: 3.7, manananggal: 0.62, beth: 1.65, whitelady: 1.65, sakristan: 1.7 };
 function pickPatrol() {
   const p = PATROL[Math.floor(Math.random() * PATROL.length)];
   hunt.target.set(p[0] + (Math.random() - 0.5) * 8, 0, p[1] + (Math.random() - 0.5) * 8);
@@ -2690,8 +3219,13 @@ function staminaTick(dt, running) {
 }
 function updateHunt(dt, time, mode) {
   const f = Math.sin(time * 12);
-  mng.userData.wl.rotation.y = 0.3 + f * 0.6;
-  mng.userData.wr.rotation.y = -0.3 - f * 0.6;
+  mng.userData.wl.rotation.set(0, 0.35, -f * 0.65);
+  mng.userData.wr.rotation.set(0, -0.35, f * 0.65);
+  if (mng.visible) {
+    const b = mng.userData.body;
+    if (b.userData.rig) humanTick(b, dt, { crowd: true, range: 40 });
+    mng.userData.guts.rotation.set(Math.sin(time * 2.7) * 0.18, 0, Math.sin(time * 2.1) * 0.12);
+  }
   if (!hunt.active) return;
   if (mode !== 'explore') return; // naka-pause habang bukas ang menu
   const pz = player.position;
@@ -3103,23 +3637,31 @@ window.World = {
       focusId = (chars || []).find((c) => npcs[c] && npcs[c].visible) || null;
     }
   },
-  // Jumpscare: biglang lilitaw ang tikbalang sa harap mismo ng camera
-  scare() {
-    const n = npcs.tikbalang;
-    if (scareHold <= 0) scareRestore = { v: n.visible, p: n.position.clone(), r: n.rotation.y };
+  // Jumpscare: ang mismong nilalang (3D) ay biglang susugod sa harap ng camera
+  scare(type = 'tikbalang') {
+    const n = scareActorFor(type);
+    if (!n) return false;
+    if (scareHold > 0 && scareRestore && scareRestore.n !== n) {
+      scareRestore.n.visible = scareRestore.v;
+      scareRestore.n.position.copy(scareRestore.p);
+    }
+    if (scareHold <= 0 || scareRestore.n !== n) scareRestore = { n, v: n.visible, p: n.position.clone(), r: n.rotation.y };
     const f = new THREE.Vector3();
     camera.getWorldDirection(f);
     f.y = 0;
     f.normalize();
-    const y = camera.position.y - n.userData.headY * n.scale.y + 0.1;
-    scareRestore.y = y;
-    n.position.set(camera.position.x + f.x * 1.9, y, camera.position.z + f.z * 1.9);
+    scareRestore.f = f;
+    scareRestore.y = camera.position.y - (SCARE_HEAD[type] || 1.65) + (type === 'manananggal' ? 0 : 0.05);
     n.rotation.y = Math.atan2(-f.x, -f.z);
     n.visible = true;
-    scareHold = 1.0;
+    scareHold = 1.1;
+    return true;
   },
   bark: (text) => showBark(text),
-  portrait: (id) => portraitOf(id),
+  // simula ng laro: sakay ng jeep → bababa → si Lola
+  intro: (done, onCaption) => startIntro(done, onCaption),
+  skipIntro: () => { if (intro.active) intro.t = Math.max(intro.t, INTRO_T.step - 0.05); },
+  portrait: (id, w, h) => portraitOf(id, w, h),
   // Para sa pag-test: World.teleportTo('balete_front') sa browser console
   teleportTo: teleport,
   playerPos: () => ({ x: +player.position.x.toFixed(2), z: +player.position.z.toFixed(2) }),

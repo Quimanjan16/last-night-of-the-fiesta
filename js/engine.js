@@ -223,9 +223,8 @@
     g.classList.remove('shake');
     void g.offsetWidth;
     g.classList.add('shake');
-    if (W() && type === 'tikbalang') {
-      // sa 3D: ang mismong tikbalang ang sumusugod sa camera
-      W().scare();
+    if (W() && W().scare && W().scare(type)) {
+      // sa 3D: ang mismong nilalang ang sumusugod sa camera
       el.innerHTML = '';
       el.className = 'flash-only';
     } else {
@@ -765,7 +764,60 @@
   function startNew(name) {
     beginPlay();
     S = fresh(name);
-    goto(STORY.start);
+    if (W() && W().intro) runIntro(() => goto(STORY.start));
+    else goto(STORY.start);
+  }
+
+  // Simula: nakasakay sa huling jeep papuntang barrio, bababa, at makikita si Lola
+  const INTRO_CAPS = {
+    c1: { en: 'The last jeepney to Barrio San Isidro.', tl: 'Ang huling jeep papuntang Barrio San Isidro.' },
+    c2: { en: 'Lola Ising has been waiting for you since morning.', tl: "Kanina pang umaga naghihintay sa'yo si Lola Ising." },
+    para: { en: '"PARA PO!"', tl: '"PARA PO!"' },
+    stop: { en: '...', tl: '...' },
+  };
+  function runIntro(done) {
+    const sc = STORY.scenes[STORY.start];
+    mode = 'intro';
+    const g = $('#game');
+    g.classList.add('intro');
+    W().setup((sc && sc.world) || {}, {});
+    soundFor(sc);
+    let cap = document.getElementById('intro-cap');
+    if (!cap) {
+      cap = document.createElement('div');
+      cap.id = 'intro-cap';
+      g.appendChild(cap);
+    }
+    const skip = document.createElement('div');
+    skip.id = 'intro-skip';
+    skip.textContent = L({ en: 'Press Space to skip', tl: 'Pindutin ang Space para laktawan' });
+    g.appendChild(skip);
+    const onKey = (e) => {
+      if (['Space', 'Enter', 'Escape'].includes(e.code) || e.type === 'pointerdown') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        W().skipIntro();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    g.addEventListener('pointerdown', onKey, true);
+    W().intro(() => {
+      window.removeEventListener('keydown', onKey, true);
+      g.removeEventListener('pointerdown', onKey, true);
+      g.classList.remove('intro');
+      cap.className = '';
+      skip.remove();
+      mode = 'play';
+      done();
+    }, (key) => {
+      const c = INTRO_CAPS[key];
+      if (!c) return;
+      if (key === 'para') snd('knock');
+      cap.textContent = L(c);
+      cap.className = '';
+      void cap.offsetWidth;
+      cap.className = key === 'para' ? 'show loud' : 'show';
+    });
   }
 
   function resume(state) {
@@ -837,7 +889,9 @@
       loreDone = null;
       return cb ? cb() : closeOverlay();
     }
-    const art = ART.characters[id] ? ART.characters[id].svg().replace('viewBox="0 0 32 64"', 'viewBox="0 0 32 48"') : '';
+    // larawan mula sa totoong 3D na nilalang; pixel art lang kung wala pa
+    const shot = W() && W().portrait ? W().portrait(id, 360, 440) : null;
+    const art = shot ? '<img alt="" src="' + shot + '">' : ART.characters[id] ? ART.characters[id].svg().replace('viewBox="0 0 32 64"', 'viewBox="0 0 32 48"') : '';
     const facts = (L(c.facts) || []).map((f) => `<li>${esc(f)}</li>`).join('');
     overlay(
       `<div class="card lore-card" data-panel="lore">

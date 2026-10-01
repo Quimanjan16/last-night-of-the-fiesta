@@ -180,7 +180,7 @@ window.STORY = {
       at: 'lola',
       goal: T('Find Lola Ising at the jeepney stop (to your left).', 'Hanapin si Lola Ising sa hintayan ng jeep (kaliwa mo).'),
       lines: [
-        T('Six hours on a bus from Manila. The passenger beside you spilled buko juice on you three times.', 'Anim na oras sa bus mula Maynila. Tatlong beses kang natapunan ng buko juice ng katabi mo.'),
+        T('Six hours on a bus from Manila, then one more hour squeezed into a jeepney. The passenger beside you spilled buko juice on you three times.', 'Anim na oras sa bus mula Maynila, tapos isang oras pang siksikan sa jeep. Tatlong beses kang natapunan ng buko juice ng katabi mo.'),
         T('Barrio San Isidro. No signal, no Grab, no Jollibee. But the fiesta is tomorrow — and there will be lechon.', 'Barrio San Isidro. Walang signal, walang Grab, walang Jollibee. Pero pista bukas — at may lechon.'),
         ['lola', T("{name}! MY APO! Look how big you've gotten! ...You got fat, didn't you?", "{name}! APO KO! Ang laki-laki mo na! ...Tumaba ka, 'no?"), { chars: ['lola:center'] }],
         ['lola', T('Kidding! Come, come. I made suman, kalamay, and three pots of adobo. All for you.', "Joke lang! Halika na. Nagluto ako ng suman, kalamay, at tatlong kaldero ng adobo. Para sa'yo lahat 'yan.")],

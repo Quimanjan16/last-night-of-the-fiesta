@@ -95,6 +95,9 @@ Add a sound cue to any story line with `sfx`, e.g. `{ text: 'TOK! TOK!', sfx: 'k
 
 ## Graphics & credits
 
+- **Opening:** the game starts on the last jeepney into the barrio. Shout "Para po!", step down, and Lola is waiting at the shed (Space skips).
+- **Filipino look:** villagers have kayumanggi skin and black hair and wear daster, barong, camisa de chino, sando, and tsinelas. Lola has white hair in a bun. The **tikbalang** is a horse-headed giant and the **manananggal** a severed torso with bat wings and hanging entrails; jumpscares are these real 3D creatures lunging at you.
+- **Sound:** all generated live: a broken music-box oyayi, ghost choir, dissonant strings, sub-bass, distant church bells, and detuned kulintang.
 - **People:** [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) avatars and motion-capture animations (MIT, see `assets/people/LICENSE.md`), converted to small web textures and JSON clips. The game turns them pale, blood-spattered and hollow-eyed at night, and makes them stare at you.
 - **Textures, ferns, shrubs, chairs:** [Poly Haven](https://polyhaven.com) (CC0), streamed at runtime.
 - **Engine:** [three.js](https://threejs.org) with bloom, ACES tone mapping, and soft shadows. **☰ Menu → Graphics** switches between High and Low.

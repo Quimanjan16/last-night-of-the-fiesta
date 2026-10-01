@@ -8,7 +8,7 @@
   let on = true;
   try { on = localStorage.getItem(KEY) !== 'off'; } catch (e) {}
 
-  let ctx = null, master, musicBus, sfxBus, ambBus, reverb, noiseBuf;
+  let ctx = null, master, musicBus, sfxBus, ambBus, reverb, noiseBuf, wetGain;
   let mood = null, pattern = [], step = 0, nextT = 0;
   let want = { mood: 'title', amb: {} };
   let ambState = {};
@@ -32,14 +32,21 @@
 
     // Simpleng reverb (para sa alingawngaw ng gong)
     reverb = ctx.createConvolver();
-    const len = ctx.sampleRate * 2.2, ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    const len = ctx.sampleRate * 4.5, ir = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let c = 0; c < 2; c++) {
       const d = ir.getChannelData(c);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        // madilim: unti-unting nawawala ang matataas na tunog
+        const k = i / len;
+        lp += ((Math.random() * 2 - 1) - lp) * (0.5 - k * 0.42);
+        d[i] = lp * Math.pow(1 - k, 2.4) * (i < ctx.sampleRate * 0.02 ? 0 : 1);
+      }
     }
     reverb.buffer = ir;
     const wet = ctx.createGain();
-    wet.gain.value = 0.3;
+    wet.gain.value = 0.55;
+    wetGain = wet;
     reverb.connect(wet);
     wet.connect(comp);
 
@@ -220,23 +227,162 @@
     noise(t, 1.4, 0.05, musicBus, 'bandpass', 3200, 12, 1800);
   }
 
+  // Music box: parang laruang tumutugtog ng oyayi, sira-sira at may "wow" ng lumang tape
+  function musicBox(f, t, vol, dest = musicBus) {
+    const det = 1 + (Math.random() - 0.5) * 0.012;
+    for (const [mul, v, d] of [[1, 1, 2.6], [2.01, 0.35, 1.4], [3.98, 0.12, 0.7], [5.4, 0.05, 0.4]]) {
+      const o = ctx.createOscillator(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = f * mul * det;
+      lfo.frequency.value = 0.6 + Math.random() * 0.5;
+      lg.gain.value = f * mul * 0.006;
+      lfo.connect(lg);
+      lg.connect(o.frequency);
+      env(g, t, vol * v, 0.003, d);
+      o.connect(g);
+      g.connect(dest);
+      o.start(t);
+      lfo.start(t);
+      o.stop(t + d + 0.05);
+      lfo.stop(t + d + 0.05);
+    }
+  }
+  // Kantang multo: "aaah" na koro gamit ang formant filter
+  function choir(freqs, t, dur, vol) {
+    const vowels = [[800, 1150], [400, 800], [350, 2000]];
+    const vw = vowels[Math.floor(Math.random() * vowels.length)];
+    for (const f of freqs) {
+      for (const det of [0.995, 1.004]) {
+        const o = ctx.createOscillator(), g = ctx.createGain(), vib = ctx.createOscillator(), vg = ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.value = f * det;
+        vib.frequency.value = 4.5 + Math.random();
+        vg.gain.value = f * 0.008;
+        vib.connect(vg);
+        vg.connect(o.frequency);
+        const mix = ctx.createGain();
+        mix.gain.value = 1;
+        for (const ff of vw) {
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = ff;
+          bp.Q.value = 9;
+          o.connect(bp);
+          bp.connect(mix);
+        }
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(vol, t + dur * 0.35);
+        g.gain.setValueAtTime(vol, t + dur * 0.7);
+        g.gain.linearRampToValueAtTime(0, t + dur);
+        mix.connect(g);
+        g.connect(musicBus);
+        o.start(t);
+        vib.start(t);
+        o.stop(t + dur + 0.05);
+        vib.stop(t + dur + 0.05);
+      }
+    }
+  }
+  // Mga biyolin na magkakadikit ang nota (dissonant cluster) na may tremolo
+  function strings(freqs, t, dur, vol, trem = 0) {
+    for (const f of freqs) {
+      const o = ctx.createOscillator(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.value = f;
+      bp.type = 'bandpass';
+      bp.frequency.value = Math.min(4000, f * 3);
+      bp.Q.value = 0.8;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + dur * 0.5);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      if (trem) {
+        const l = ctx.createOscillator(), lg = ctx.createGain(), tg = ctx.createGain();
+        l.frequency.value = trem;
+        lg.gain.value = 0.5;
+        tg.gain.value = 0.5;
+        l.connect(lg);
+        lg.connect(tg.gain);
+        o.connect(bp);
+        bp.connect(tg);
+        tg.connect(g);
+        l.start(t);
+        l.stop(t + dur + 0.05);
+      } else {
+        o.connect(bp);
+        bp.connect(g);
+      }
+      g.connect(musicBus);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+  }
+  // Matinis na kaskas ng biyolin (sul ponticello)
+  function screech(t, vol = 0.04) {
+    const o = ctx.createOscillator(), g = ctx.createGain(), hp = ctx.createBiquadFilter();
+    const f = 1400 + Math.random() * 900;
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f * (Math.random() < 0.5 ? 1.5 : 0.6), t + 2.2);
+    hp.type = 'highpass';
+    hp.frequency.value = 900;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 1.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+    o.connect(hp);
+    hp.connect(g);
+    g.connect(musicBus);
+    o.start(t);
+    o.stop(t + 2.5);
+  }
+  // Napakababang ugong na nararamdaman sa dibdib
+  function sub(t, dur = 4, vol = 0.22) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(34 + Math.random() * 6, t);
+    o.frequency.linearRampToValueAtTime(29, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    g.connect(musicBus);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+    noise(t, dur, vol * 0.25, musicBus, 'lowpass', 90);
+  }
+  // Kampana sa malayo
+  function farBell(t, vol = 0.12) {
+    const f = 146.8;
+    for (const [m, v, d] of [[1, 1, 6], [2.4, 0.4, 4], [3.0, 0.25, 3], [4.2, 0.1, 2]]) tone('sine', f * m, t, d, vol * v, musicBus, 0.004);
+  }
+  // Kulintang na sira ang tono: bumababa ang nota habang tumutunog
+  function bentGong(f, t, vol) {
+    tone('sine', f, t, 2.4, vol, musicBus, 0.004, f * 0.86);
+    tone('sine', f * 2.76, t, 0.8, vol * 0.25, musicBus, 0.003, f * 2.3);
+  }
+  // Oyayi (orihinal na himig na pentatonic) — [nota sa semitone mula A3, haba sa beat]
+  const OYAYI = [[7, 2], [10, 1], [12, 2], [10, 1], [7, 3], [5, 2], [3, 1], [5, 2], [7, 1], [0, 3], [7, 2], [10, 1], [15, 2], [12, 1], [10, 3], [7, 2], [5, 1], [3, 2], [5, 1], [0, 4]];
+  let oyayiI = 0, oyayiNext = 0;
+  // Pulso ng takot sa bass (parang tibok ng orasan)
+  const PULSE = [0, 0, 1, 0, 0, 1, 0, 0];
+
   // ---------------- Musika ----------------
   const P = [0, 2, 4, 7, 9]; // pentatonic (kulintang)
   const M = [0, 3, 5, 7, 10]; // minor pentatonic
+  // box: oyayi sa music box; choir: multong koro; str: biyolin na dissonant; sub: ugong; bells: kampana; bend: sirang kulintang
   const MOODS = {
-    title: { bpm: 76, root: 392, scale: P, rest: 0.5, vol: 0.15, agung: 16, pad: [98, 146.8], padVol: 0.04 },
-    day: { bpm: 108, root: 587.3, scale: P, rest: 0.32, vol: 0.12, agung: 8, bass: [146.8, 220], clicks: true },
-    dusk: { bpm: 88, root: 440, scale: P, rest: 0.45, vol: 0.12, agung: 16, pad: [110, 164.8], padVol: 0.04, clicks: true },
-    night: { bpm: 70, root: 440, scale: M, rest: 0.72, vol: 0.09, pad: [110, 130.8, 164.8], padVol: 0.04 },
-    fog: { bpm: 60, root: 220, scale: M, rest: 0.86, vol: 0.08, pad: [73.4, 77.8], padVol: 0.06, heart: true },
-    tense: { bpm: 132, root: 220, scale: M, rest: 0.15, vol: 0.09, pluckLead: true, toms: true, agung: 16 },
-    fiesta: { bpm: 124, root: 587.3, scale: P, rest: 0.25, vol: 0.11, agung: 8, clicks: true, chords: true },
-    dawn: { bpm: 72, root: 523.3, scale: P, rest: 0.55, vol: 0.1, pad: [130.8, 196], padVol: 0.045 },
-    sad: { bpm: 58, root: 293.7, scale: M, rest: 0.7, vol: 0.08, pad: [73.4, 87.3, 110], padVol: 0.05, agung: 32 },
-    hunt: { bpm: 112, root: 196, scale: M, rest: 0.8, vol: 0.07, drone: [49, 51.9], droneVol: 0.1, heart: true, toms: true, stab: 0.03, scrape: 0.02 },
-    horror: { bpm: 60, root: 110, scale: M, rest: 0.93, vol: 0.06, drone: [55, 58.3, 82.4], droneVol: 0.09, heart: true, whistle: 0.05, stab: 0.025, scrape: 0.02 },
-    silent: { bpm: 60, root: 220, scale: M, rest: 1, vol: 0.00001 },
-    eerie: { bpm: 66, root: 220, scale: M, rest: 0.86, vol: 0.06, drone: [65.4, 69.3], droneVol: 0.07, whistle: 0.04, scrape: 0.01 },
+    title: { bpm: 60, root: 220, scale: M, rest: 1, vol: 0.0001, box: 0.06, choir: [110, 116.5], choirVol: 0.025, sub: 32, bells: 0.012, drone: [55, 58.3], droneVol: 0.05, wet: 0.75 },
+    day: { bpm: 96, root: 523.3, scale: P, rest: 0.45, vol: 0.09, agung: 16, bass: [130.8, 196], clicks: true, drone: [65.4, 98], droneVol: 0.025, wet: 0.45 },
+    dusk: { bpm: 72, root: 440, scale: M, rest: 0.62, vol: 0.08, bend: 0.03, box: 0.035, choir: [110, 130.8], choirVol: 0.02, drone: [55, 82.4], droneVol: 0.04, wet: 0.6 },
+    night: { bpm: 64, root: 220, scale: M, rest: 0.9, vol: 0.06, bend: 0.05, choir: [110, 116.5, 164.8], choirVol: 0.025, str: [220, 233.1], strVol: 0.012, sub: 32, bells: 0.008, voices: 0.012, drone: [55, 58.3], droneVol: 0.06, wet: 0.75 },
+    fog: { bpm: 58, root: 220, scale: M, rest: 0.95, vol: 0.05, heart: true, str: [110, 116.5, 123.5], strVol: 0.014, sub: 16, scrape: 0.02, voices: 0.02, drone: [41.2, 43.7], droneVol: 0.08, wet: 0.8 },
+    tense: { bpm: 128, root: 220, scale: M, rest: 0.4, vol: 0.07, pluckLead: true, toms: true, pulse: true, str: [220, 233.1, 311.1], strVol: 0.016, trem: 11, agung: 16, wet: 0.5 },
+    fiesta: { bpm: 118, root: 587.3, scale: P, rest: 0.25, vol: 0.1, agung: 8, clicks: true, chords: true, drone: [73.4], droneVol: 0.02, wet: 0.45 },
+    dawn: { bpm: 64, root: 523.3, scale: P, rest: 0.6, vol: 0.08, box: 0.03, pad: [130.8, 196], padVol: 0.035, wet: 0.6 },
+    sad: { bpm: 52, root: 293.7, scale: M, rest: 0.8, vol: 0.06, box: 0.05, pad: [73.4, 87.3, 110], padVol: 0.04, agung: 32, wet: 0.7 },
+    hunt: { bpm: 120, root: 196, scale: M, rest: 0.85, vol: 0.06, pulse: true, heart: true, toms: true, str: [196, 207.7, 233.1, 246.9], strVol: 0.02, trem: 13, sub: 16, stab: 0.03, screech: 0.025, drone: [49, 51.9], droneVol: 0.09, wet: 0.6 },
+    horror: { bpm: 60, root: 110, scale: M, rest: 0.95, vol: 0.05, heart: true, str: [110, 116.5, 155.6, 164.8], strVol: 0.028, trem: 9, sub: 8, stab: 0.03, screech: 0.04, voices: 0.03, drone: [55, 58.3, 82.4], droneVol: 0.09, wet: 0.8 },
+    silent: { bpm: 60, root: 220, scale: M, rest: 1, vol: 0.00001, wet: 0.6 },
+    eerie: { bpm: 60, root: 220, scale: M, rest: 0.95, vol: 0.05, box: 0.04, bend: 0.03, choir: [110, 116.5], choirVol: 0.022, bells: 0.01, voices: 0.02, scrape: 0.01, drone: [65.4, 69.3], droneVol: 0.06, wet: 0.8 },
   };
   function seeded(str) {
     let h = 2166136261;
@@ -284,6 +430,22 @@
       const ch = CHORDS[Math.floor(s / 8) % 4];
       pluck(ch[s % 3] / 2, t, 0.06, 0.35);
     }
+    const bar = beat * 32;
+    if (m.box && t >= oyayiNext) {
+      const [n, len] = OYAYI[oyayiI % OYAYI.length];
+      musicBox(220 * Math.pow(2, n / 12) * 2, t, m.box);
+      oyayiNext = t + len * beat * 2.2;
+      oyayiI++;
+      if (oyayiI % OYAYI.length === 0) oyayiNext += beat * 6; // pahinga bago umulit
+    }
+    if (m.choir && s % 32 === 0) choir(m.choir, t, bar + 1, m.choirVol || 0.02);
+    if (m.str && s % 32 === 16) strings(m.str, t, bar * 0.9, m.strVol || 0.015, m.trem || 0);
+    if (m.sub && s % m.sub === 0) sub(t, beat * m.sub * 0.9);
+    if (m.bells && Math.random() < m.bells) farBell(t);
+    if (m.bend && Math.random() < m.bend) bentGong(freqOf(m, Math.floor(Math.random() * 6)), t, 0.06);
+    if (m.screech && Math.random() < m.screech) screech(t);
+    if (m.voices && Math.random() < m.voices) SFX.whisper(t, { vol: 0.5 });
+    if (m.pulse && PULSE[s % 8]) tone('sine', s % 16 < 8 ? 55 : 58.3, t, beat * 0.9, 0.16, musicBus, 0.005, 50);
   }
   function tick() {
     if (!ctx || !mood) return;
@@ -302,6 +464,9 @@
     clearTimeout(switchTimer);
     const go = () => {
       mood = name;
+      if (wetGain) wetGain.gain.setTargetAtTime(MOODS[name].wet ?? 0.55, ctx.currentTime, 0.8);
+      oyayiI = 0;
+      oyayiNext = 0;
       pattern = makePattern(name, MOODS[name]);
       step = 0;
       nextT = ctx.currentTime + 0.05;
@@ -421,13 +586,14 @@
       for (let i = 0; i < 6; i++) {
         const o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
         o.type = 'sawtooth';
-        const base = 210 * Math.pow(0.93, i);
+        const base = 120 * Math.pow(0.94, i);
         o.frequency.setValueAtTime(base * 1.15, t + i * 0.17);
         o.frequency.exponentialRampToValueAtTime(base, t + i * 0.17 + 0.12);
         f.type = 'bandpass';
-        f.frequency.value = 800;
-        f.Q.value = 3;
-        env(g, t + i * 0.17, 0.22, 0.01, 0.14);
+        f.frequency.value = 650;
+        f.Q.value = 4;
+        env(g, t + i * 0.17, 0.3, 0.01, 0.15);
+        if (i === 0) sub(t, 2.5, 0.3);
         o.connect(f);
         f.connect(g);
         g.connect(sfxBus);
@@ -460,8 +626,23 @@
     wind(t) {
       noise(t, 2.2, 0.3, sfxBus, 'bandpass', 300, 1.2, 1400);
     },
-    // JUMPSCARE: malakas na hiyaw + sirang chord + malalim na kabog
+    // JUMPSCARE: "BWAAM" + sigaw ng babae + kaskas ng biyolin + kabog
     scare(t) {
+      SFX.scream(t, { vol: 0.9 });
+      for (const f of [41.2, 43.7, 61.7, 65.4]) {
+        const o = ctx.createOscillator(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        fl.type = 'lowpass';
+        fl.frequency.setValueAtTime(2200, t);
+        fl.frequency.exponentialRampToValueAtTime(160, t + 2.5);
+        env(g, t, 0.28, 0.005, 2.8);
+        o.connect(fl);
+        fl.connect(g);
+        g.connect(sfxBus);
+        o.start(t);
+        o.stop(t + 2.9);
+      }
       noise(t, 0.7, 0.9, sfxBus, 'highpass', 700, 0.7, 3000);
       for (const f of [311, 330, 466, 494, 740]) {
         const o = ctx.createOscillator(), g = ctx.createGain();
@@ -486,6 +667,49 @@
       g.connect(sfxBus);
       o.start(t);
       o.stop(t + 1.5);
+    },
+    // Sigaw: tunog ng boses gamit ang formant (parang babaeng tumitili)
+    scream(t, o) {
+      const v = 0.35 * (o.vol ?? 1);
+      const src = ctx.createOscillator(), vib = ctx.createOscillator(), vg = ctx.createGain(), g = ctx.createGain();
+      src.type = 'sawtooth';
+      src.frequency.setValueAtTime(620, t);
+      src.frequency.exponentialRampToValueAtTime(980, t + 0.25);
+      src.frequency.exponentialRampToValueAtTime(700, t + 1.3);
+      vib.frequency.value = 7;
+      vg.gain.value = 40;
+      vib.connect(vg);
+      vg.connect(src.frequency);
+      for (const [ff, q] of [[1000, 6], [1600, 8], [2900, 10]]) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = ff;
+        bp.Q.value = q;
+        src.connect(bp);
+        bp.connect(g);
+      }
+      env(g, t, v, 0.02, 1.4);
+      g.connect(sfxBus);
+      noise(t, 1.2, v * 0.3, sfxBus, 'bandpass', 2500, 2);
+      src.start(t);
+      vib.start(t);
+      src.stop(t + 1.5);
+      vib.stop(t + 1.5);
+    },
+    // Busina ng jeep
+    horn(t) {
+      for (const [st, d] of [[0, 0.18], [0.26, 0.35]]) {
+        for (const f of [392, 494]) {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'square';
+          o.frequency.value = f;
+          env(g, t + st, 0.05, 0.01, d);
+          o.connect(g);
+          g.connect(sfxBus);
+          o.start(t + st);
+          o.stop(t + st + d + 0.05);
+        }
+      }
     },
     // Nakakatawang "wah-wah-wah-waaah" (sad trombone)
     wahwah(t) {
@@ -555,6 +779,7 @@
         o.stop(t + 0.9);
       }
       noise(t, 0.6, 0.15, sfxBus, 'highpass', 2000);
+      SFX.scream(t + 0.05, { vol: 0.6 });
     },
     whip(t) {
       noise(t, 0.12, 0.6, sfxBus, 'highpass', 1800, 1, 6000);
@@ -634,9 +859,14 @@
     // Mga bulong: parang maraming boses na nagsasalita nang mahina
     whisper(t, o) {
       const v = 0.12 * (o.vol ?? 1);
-      for (let i = 0; i < 7; i++) {
-        const st = t + i * 0.13 + Math.random() * 0.08;
-        noise(st, 0.18 + Math.random() * 0.2, v * (0.5 + Math.random()), sfxBus, 'bandpass', 1400 + Math.random() * 2200, 6);
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = Math.random() * 2 - 1;
+      pan.connect(sfxBus);
+      for (let i = 0; i < 9; i++) {
+        const st = t + i * 0.12 + Math.random() * 0.08;
+        // "sss", "hhh", "aaa" na pantig: magkakaibang formant
+        const f = [[2400, 1600], [1100, 800], [3600, 2200]][Math.floor(Math.random() * 3)];
+        noise(st, 0.16 + Math.random() * 0.22, v * (0.5 + Math.random()), pan, 'bandpass', f[0], 7, f[1]);
       }
     },
     // Pabaligtad na cymbal: lumalakas tapos biglang tigil (bago ang title)
@@ -686,6 +916,50 @@
     SFX[name](ctx.currentTime + 0.01, opt || {});
   }
 
+  let jeepNodes = null;
+  function jeep(onJ) {
+    if (!ctx) return;
+    if (onJ && !jeepNodes) {
+      const o = ctx.createOscillator(), o2 = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+      const wob = ctx.createOscillator(), wg = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.value = 42;
+      o2.type = 'square';
+      o2.frequency.value = 84.5;
+      wob.frequency.value = 7;
+      wg.gain.value = 3;
+      wob.connect(wg);
+      wg.connect(o.frequency);
+      lp.type = 'lowpass';
+      lp.frequency.value = 220;
+      o.connect(lp);
+      o2.connect(lp);
+      const rumble = ctx.createBufferSource(), rf = ctx.createBiquadFilter();
+      rumble.buffer = noiseBuf;
+      rumble.loop = true;
+      rf.type = 'lowpass';
+      rf.frequency.value = 160;
+      rumble.connect(rf);
+      rf.connect(g);
+      lp.connect(g);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + 1);
+      g.connect(sfxBus);
+      [o, o2, wob, rumble].forEach((n) => n.start());
+      // kalampag ng mga bakal
+      const rattle = setInterval(() => { if (ctx) noise(ctx.currentTime, 0.04, 0.05 + Math.random() * 0.06, sfxBus, 'bandpass', 1800 + Math.random() * 1500, 4); }, 140);
+      jeepNodes = { nodes: [o, o2, wob, rumble], g, rattle, o };
+    } else if (!onJ && jeepNodes) {
+      const j = jeepNodes;
+      jeepNodes = null;
+      clearInterval(j.rattle);
+      j.o.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 1.2);
+      j.g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.6);
+      setTimeout(() => j.nodes.forEach((n) => n.stop()), 1700);
+      SFX.horn(ctx.currentTime + 0.1);
+    }
+  }
+
   let scareTimer = null;
   function scareMusic(sec = 9) {
     if (!ctx) return;
@@ -711,6 +985,7 @@
 
   window.Sound = {
     play,
+    jeep(onJ) { init(); jeep(onJ); },
     setScene,
     captureStream,
     scareMusic,

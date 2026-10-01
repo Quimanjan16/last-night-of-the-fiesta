@@ -751,3 +751,161 @@ kbd { border: 1px solid var(--muted); padding: 0 4px; font-family: inherit; }
 
 /* 3D na larawan ng nagsasalita */
 #portrait img { width: 100%; height: 100%; display: block; object-fit: cover; image-rendering: auto; border-radius: 4px; }
+
+/* =====================================================================
+   HORROR UI — dialogue box na parang lumang sulat na may mantsa ng dugo
+   ===================================================================== */
+#box {
+  font-family: 'Special Elite', 'VT323', monospace;
+  font-size: clamp(18px, 0.7vw + 13px, 25px);
+  line-height: 1.35;
+  color: #e6ddcc;
+  text-shadow: 0 0 6px rgba(140, 0, 0, 0.35), 0 1px 0 #000;
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3'/><feColorMatrix values='0 0 0 0 0.25 0 0 0 0 0.02 0 0 0 0 0.02 0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),
+    radial-gradient(ellipse at 20% 0%, rgba(110, 10, 10, 0.35), transparent 60%),
+    radial-gradient(ellipse at 100% 100%, rgba(70, 0, 0, 0.45), transparent 55%),
+    linear-gradient(180deg, rgba(14, 8, 8, 0.95), rgba(4, 2, 2, 0.97));
+  border: 1px solid rgba(150, 20, 20, 0.55);
+  border-top: 2px solid rgba(160, 15, 15, 0.85);
+  box-shadow: 0 0 0 1px #000, 0 0 40px rgba(120, 0, 0, 0.35), inset 0 0 60px rgba(0, 0, 0, 0.9), 0 18px 40px rgba(0, 0, 0, 0.7);
+  border-radius: 2px;
+  padding: 30px 28px 24px;
+  animation: boxbreathe 6s ease-in-out infinite;
+}
+@keyframes boxbreathe {
+  0%, 100% { box-shadow: 0 0 0 1px #000, 0 0 30px rgba(120, 0, 0, 0.25), inset 0 0 60px rgba(0, 0, 0, 0.9), 0 18px 40px rgba(0, 0, 0, 0.7); }
+  50% { box-shadow: 0 0 0 1px #000, 0 0 55px rgba(150, 0, 0, 0.45), inset 0 0 60px rgba(0, 0, 0, 0.9), 0 18px 40px rgba(0, 0, 0, 0.7); }
+}
+/* tumutulong dugo sa itaas ng box */
+#box::before {
+  left: 0; right: 0; top: -2px;
+  height: 46px;
+  opacity: 0.9;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='46' preserveAspectRatio='none'><path fill='%23700a0a' d='M0 0h420v5c-8 0-9 7-10 14s-4 9-6 0-3-13-12-13-14 2-15 18-6 22-8 6-2-21-14-21-30 1-31 9-4 6-5 0-6-9-20-9-26 0-27 12-5 31-8 9-2-21-16-21-27 1-28 7-4 11-6 1-5-7-18-7-21 0-22 16-6 19-8 2-4-18-15-18-30 0-31 10-4 13-6 1-6-11-20-11-24 1-25 8-5 4-6-2-9-6-22-6V0z'/></svg>") repeat-x;
+  background-size: 420px 46px;
+  pointer-events: none;
+}
+#nametag {
+  top: -18px;
+  left: 20px;
+  background: #080404;
+  color: #c4161c;
+  font-family: 'IM Fell English SC', Georgia, serif;
+  font-weight: 400;
+  font-size: 0.95em;
+  letter-spacing: 2px;
+  padding: 0 14px 2px;
+  border: 1px solid rgba(160, 20, 20, 0.7);
+  box-shadow: 0 0 14px rgba(160, 0, 0, 0.45);
+  text-shadow: 0 0 8px rgba(255, 0, 0, 0.45);
+}
+#text.narr { color: #b9ad98; font-style: italic; }
+#next { color: #c4161c; text-shadow: 0 0 8px #f00; }
+#box.has-portrait { padding-left: 168px; min-height: 186px; }
+#portrait {
+  left: 18px;
+  top: 24px;
+  width: 132px;
+  height: 150px;
+  background: #050303;
+  border: 1px solid rgba(160, 20, 20, 0.7);
+  box-shadow: 0 0 0 1px #000, 0 0 22px rgba(140, 0, 0, 0.5);
+  border-radius: 0;
+}
+#portrait img { border-radius: 0; filter: contrast(1.15) saturate(0.75) sepia(0.15); animation: portraitflicker 7s steps(1) infinite; }
+#portrait::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(60, 0, 0, 0.75) 100%);
+  mix-blend-mode: multiply;
+}
+@keyframes portraitflicker { 0%, 100% { opacity: 1; } 31% { opacity: 0.72; } 32% { opacity: 1; } 64% { opacity: 0.85; } 65% { opacity: 1; } }
+#game.scary #box { animation: boxbreathe 3s ease-in-out infinite, boxjitter 4s steps(1) infinite; }
+@keyframes boxjitter { 0%, 100% { transform: translateX(-50%); } 47% { transform: translate(calc(-50% + 2px), -1px); } 48% { transform: translateX(-50%); } 83% { transform: translate(calc(-50% - 2px), 1px); } 84% { transform: translateX(-50%); } }
+
+#choices { background: linear-gradient(transparent 20%, rgba(0, 0, 0, 0.75)); }
+.choice {
+  font-family: 'Special Elite', 'VT323', monospace;
+  font-size: clamp(17px, 0.6vw + 13px, 23px);
+  background: linear-gradient(90deg, rgba(20, 6, 6, 0.96), rgba(8, 4, 4, 0.94));
+  color: #e6ddcc;
+  border: 1px solid rgba(140, 20, 20, 0.5);
+  border-left: 4px solid #7a0a0a;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
+}
+.choice .num { background: #7a0a0a; color: #f0e0d0; font-family: 'IM Fell English SC', serif; }
+.choice:hover, .choice:focus-visible { background: linear-gradient(90deg, rgba(70, 8, 8, 0.96), rgba(16, 4, 4, 0.94)); box-shadow: 0 0 22px rgba(200, 0, 0, 0.45); border-left-color: #e01010; }
+
+/* Creature Files: larawan mula sa 3D */
+.lore-art { width: 180px; height: 220px; background: #050303; border: 1px solid rgba(160, 20, 20, 0.7); box-shadow: 0 0 22px rgba(140, 0, 0, 0.5); }
+.lore-art img { width: 100%; height: 100%; object-fit: cover; display: block; filter: contrast(1.1) saturate(0.8); }
+
+/* ---------- Intro: sakay ng jeep ---------- */
+#game.intro > *:not(#world):not(#intro-cap):not(#intro-skip):not(#fade):not(#grain):not(#overlay) { display: none !important; }
+#game.intro #world { clip-path: inset(10% 0 10% 0); }
+#game.intro { cursor: none; }
+#intro-cap {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 13%;
+  text-align: center;
+  z-index: 6;
+  font-family: 'Special Elite', monospace;
+  font-size: clamp(20px, 1.4vw + 10px, 34px);
+  color: #e6ddcc;
+  text-shadow: 0 0 12px #000, 0 0 4px #000;
+  opacity: 0;
+  pointer-events: none;
+}
+#intro-cap.show { animation: capfade 3.4s ease forwards; }
+#intro-cap.loud { font-family: 'IM Fell English SC', serif; font-size: clamp(30px, 2.4vw + 14px, 56px); color: #f0e6d0; letter-spacing: 3px; animation: capfade 2.2s ease forwards, capshake 0.25s steps(2) 3; }
+@keyframes capfade { 0% { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes capshake { 50% { transform: translate(3px, -2px); } }
+#intro-skip { position: absolute; right: 18px; bottom: 3%; z-index: 6; color: rgba(230, 220, 200, 0.55); font-family: 'Special Elite', monospace; font-size: 15px; pointer-events: none; }
+
+/* =====================================================================
+   HORROR PALETTE para sa lahat ng menu at HUD (dugo, itim, lumang papel)
+   ===================================================================== */
+:root {
+  --ink: #e6ddcc;
+  --muted: #9a8c80;
+  --panel: rgba(9, 5, 5, 0.93);
+  --accent: #b3161c;
+  --dark: #040202;
+}
+.card {
+  border: 1px solid rgba(160, 20, 20, 0.6);
+  border-top: 2px solid #8a0f14;
+  box-shadow: 0 0 0 1px #000, 0 0 50px rgba(120, 0, 0, 0.35), inset 0 0 80px rgba(0, 0, 0, 0.85);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(90, 8, 8, 0.35), transparent 60%),
+    linear-gradient(180deg, rgba(14, 7, 7, 0.96), rgba(4, 2, 2, 0.97));
+  font-family: 'Special Elite', 'VT323', monospace;
+  font-size: 19px;
+}
+.title-logo {
+  font-family: 'IM Fell English SC', Georgia, serif;
+  font-weight: 400;
+  color: #c4161c;
+  letter-spacing: 1px;
+  text-shadow: 0 0 18px rgba(200, 0, 0, 0.55), 0 2px 0 #000;
+  animation: logoflicker 6s steps(1) infinite;
+}
+@keyframes logoflicker { 0%, 100% { opacity: 1; } 12% { opacity: 0.6; } 13% { opacity: 1; } 57% { opacity: 0.8; } 58% { opacity: 1; } }
+.btn, .menu-btn, #menu button {
+  font-family: 'Special Elite', 'VT323', monospace;
+  background: linear-gradient(180deg, rgba(26, 8, 8, 0.95), rgba(10, 4, 4, 0.95));
+  color: #e6ddcc;
+  border: 1px solid rgba(150, 20, 20, 0.6) !important;
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.8);
+}
+.btn:hover, .menu-btn:hover, #menu button:hover { background: linear-gradient(180deg, rgba(90, 10, 10, 0.95), rgba(30, 4, 4, 0.95)); box-shadow: 0 0 16px rgba(200, 0, 0, 0.45); }
+.btn.primary { background: linear-gradient(180deg, #7a0d10, #3a0406); color: #f2e8d8; border-color: #c4161c !important; }
+.btn.primary:hover { background: linear-gradient(180deg, #a3161c, #4a0608); }
+.name-label input { background: #080404; border: 1px solid rgba(160, 20, 20, 0.7); font-family: 'Special Elite', monospace; }
+.obj-label { color: #f2e8d8; background: #7a0d10; }
+#objective { font-family: 'Special Elite', 'VT323', monospace; border-color: rgba(160, 20, 20, 0.6) !important; background: rgba(8, 4, 4, 0.85) !important; }
+#stats { font-family: 'Special Elite', 'VT323', monospace; }
