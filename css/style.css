@@ -748,3 +748,6 @@ kbd { border: 1px solid var(--muted); padding: 0 4px; font-family: inherit; }
   animation: bloodpulse 1.4s ease-in-out infinite;
 }
 @keyframes bloodpulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+
+/* 3D na larawan ng nagsasalita */
+#portrait img { width: 100%; height: 100%; display: block; object-fit: cover; image-rendering: auto; border-radius: 4px; }

@@ -89,8 +89,15 @@ Add a sound cue to any story line with `sfx`, e.g. `{ text: 'TOK! TOK!', sfx: 'k
 | `js/i18n.js` | Language system and menu translations (English / Filipino) |
 | `js/engine.js` | Dialogue, choices, stats, save/load, endings |
 | `js/world.js` | 3D world: map, buildings, characters, movement, camera, lighting |
-| `js/art.js` | 2D pixel-art backgrounds and portraits (2D version, and dialogue portraits in both) |
+| `js/art.js` | 2D pixel-art backgrounds and portraits (2D version; fallback portraits in 3D) |
 | `js/audio.js` | Generated music, ambience, and sound effects |
+| `assets/people/` | Character models, textures, and motion-capture animations |
+
+## Graphics & credits
+
+- **People:** [Microsoft Rocketbox](https://github.com/microsoft/Microsoft-Rocketbox) avatars and motion-capture animations (MIT, see `assets/people/LICENSE.md`), converted to small web textures and JSON clips. The game turns them pale, blood-spattered and hollow-eyed at night, and makes them stare at you.
+- **Textures, ferns, shrubs, chairs:** [Poly Haven](https://polyhaven.com) (CC0), streamed at runtime.
+- **Engine:** [three.js](https://threejs.org) with bloom, ACES tone mapping, and soft shadows. **☰ Menu → Graphics** switches between High and Low.
 
 ## Writing the story (`js/story.js`)
 

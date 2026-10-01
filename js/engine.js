@@ -197,8 +197,10 @@
       $('#box').classList.remove('has-portrait');
       return;
     }
-    const key = who;
-    if (!portraitCache[key]) portraitCache[key] = def.svg().replace('viewBox="0 0 32 64"', 'viewBox="6 0 20 22"');
+    // mas gusto ang totoong 3D na mukha mula sa mundo; pixel art lang kung wala pa
+    const shot = W() && W().portrait ? W().portrait(who) : null;
+    const key = shot ? 'img:' + who + ':' + shot.length : who;
+    if (!portraitCache[key]) portraitCache[key] = shot ? '<img alt="" src="' + shot + '">' : def.svg().replace('viewBox="0 0 32 64"', 'viewBox="6 0 20 22"');
     if (el.dataset.who !== key) {
       el.innerHTML = portraitCache[key];
       el.dataset.who = key;

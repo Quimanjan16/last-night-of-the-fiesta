@@ -7,6 +7,13 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+const gltfManager = new THREE.LoadingManager();
+gltfManager.setURLModifier((u) => u.replace(/\/Models\/gltf\/1k\/([^/]+)\/textures\//, '/Models/jpg/1k/$1/'));
+const gltfLoader = new GLTFLoader(gltfManager);
 
 // Graphics quality: 'high' (bloom, soft shadows) o 'low'
 let GFX = 'high';
@@ -42,12 +49,45 @@ scene.add(sun, sun.target);
 // ---------------- Helpers ----------------
 // PBR na materyales + "grime" shader: dumi, mantsa, at AO sa may lupa para hindi plastik ang itsura
 const shaderTime = { value: 0 };
+// ---- Mga totoong litratong texture (Poly Haven, CC0) na nakalapat sa world-space (triplanar) ----
+const PH = (slug) => `https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/${slug}/${slug}_diff_1k.jpg`;
+const texLoader = new THREE.TextureLoader();
+texLoader.setCrossOrigin('anonymous');
+const WHITE_TEX = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([200, 200, 200, 255]), 1, 1);
+  t.needsUpdate = true;
+  return t;
+})();
+const texCache = new Map();
+function photoTex(slug) {
+  if (!texCache.has(slug)) {
+    const u = { value: WHITE_TEX };
+    texCache.set(slug, u);
+    texLoader.load(PH(slug), (t) => {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      u.value = t;
+    }, undefined, () => console.warn('texture failed', slug));
+  }
+  return texCache.get(slug);
+}
+// Lahat ng materyales: dumi/mantsa, AO sa may lupa, at (kung may tex) litratong texture + relief
+const allSurfaceMats = [];
 function addGrime(m, o = {}) {
   const strength = o.grime ?? 1;
+  const tex = o.tex ? photoTex(o.tex) : null;
+  const scale = { value: o.scale ?? 0.4 };
+  const bump = { value: o.bump ?? 1.0 };
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = shaderTime;
+    if (tex) {
+      sh.uniforms.uTex = tex;
+      sh.uniforms.uTexScale = scale;
+      sh.uniforms.uBump = bump;
+    }
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nuniform float uTime;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nuniform float uTime;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 ${o.wind ? `{ vec4 wp0 = vec4(transformed, 1.0);
 #ifdef USE_INSTANCING
@@ -55,40 +95,110 @@ ${o.wind ? `{ vec4 wp0 = vec4(transformed, 1.0);
 #endif
   wp0 = modelMatrix * wp0;
   float sway = sin(uTime * 1.7 + wp0.x * 0.35 + wp0.z * 0.27) * 0.5 + sin(uTime * 3.1 + wp0.x) * 0.15;
-  float hgt = max(0.0, position.y + 0.3);
-  transformed.x += sway * hgt * 0.45; transformed.z += sway * hgt * 0.22; }` : ''}`)
+  float hgt = max(0.0, position.y + ${(o.windBase ?? 0.3).toFixed(2)});
+  transformed.x += sway * hgt * ${(o.windAmt ?? 0.45).toFixed(2)}; transformed.z += sway * hgt * ${((o.windAmt ?? 0.45) * 0.5).toFixed(2)}; }` : ''}`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
 { vec4 wp = vec4(transformed, 1.0);
+  vec3 wn = objectNormal;
 #ifdef USE_INSTANCING
   wp = instanceMatrix * wp;
+  wn = mat3(instanceMatrix) * wn;
 #endif
-  vWPos = (modelMatrix * wp).xyz; }`);
+  vWPos = (modelMatrix * wp).xyz;
+  vWNrm = normalize(mat3(modelMatrix) * wn); }`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 varying vec3 vWPos;
+varying vec3 vWNrm;
+${tex ? 'uniform sampler2D uTex; uniform float uTexScale; uniform float uBump;' : ''}
 float gH(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 float gN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(mix(gH(i), gH(i+vec3(1,0,0)), f.x), mix(gH(i+vec3(0,1,0)), gH(i+vec3(1,1,0)), f.x), f.y),
-             mix(mix(gH(i+vec3(0,0,1)), gH(i+vec3(1,0,1)), f.x), mix(gH(i+vec3(0,1,1)), gH(i+vec3(1,1,1)), f.x), f.y), f.z); }`)
+             mix(mix(gH(i+vec3(0,0,1)), gH(i+vec3(1,0,1)), f.x), mix(gH(i+vec3(0,1,1)), gH(i+vec3(1,1,1)), f.x), f.y), f.z); }
+vec3 gPerturb(vec3 surf_pos, vec3 surf_norm, vec2 dHdxy, float faceDir) {
+  vec3 sx = normalize(dFdx(surf_pos)), sy = normalize(dFdy(surf_pos));
+  vec3 r1 = cross(sy, surf_norm), r2 = cross(surf_norm, sx);
+  float det = dot(sx, r1) * faceDir;
+  vec3 grad = sign(det) * (dHdxy.x * r1 + dHdxy.y * r2);
+  return normalize(abs(det) * surf_norm - grad);
+}`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+float gHgt = 0.5;
+${tex ? `{ vec3 bw = pow(abs(vWNrm), vec3(4.0)); bw /= max(1e-4, dot(bw, vec3(1.0)));
+  vec3 P = vWPos * uTexScale;
+  // dalawang sukat para hindi halata ang pag-ulit ng texture
+  vec4 tA = texture2D(uTex, P.zy) * bw.x + texture2D(uTex, P.xz) * bw.y + texture2D(uTex, P.xy) * bw.z;
+  vec3 Q = vWPos * uTexScale * 0.27 + 0.37;
+  vec4 tB = texture2D(uTex, Q.zy) * bw.x + texture2D(uTex, Q.xz) * bw.y + texture2D(uTex, Q.xy) * bw.z;
+  float mixv = smoothstep(0.3, 0.7, gN(vWPos * 0.09));
+  vec4 tc = mix(tA, tB, mixv * 0.45);
+  diffuseColor.rgb *= tc.rgb * 1.6;
+  gHgt = dot(tc.rgb, vec3(0.333)); }` : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 { float n = gN(vWPos * 1.7) * 0.5 + gN(vWPos * 6.3) * 0.3 + gN(vWPos * 21.0) * 0.2;
-  float grime = mix(0.72, 1.12, n);
+  float grime = mix(0.74, 1.1, n);
   float ao = smoothstep(0.0, 1.1, vWPos.y) * 0.4 + 0.6;
   float streak = smoothstep(0.55, 0.9, gN(vec3(vWPos.x * 3.0, vWPos.y * 0.25, vWPos.z * 3.0)));
   diffuseColor.rgb *= mix(1.0, grime * ao * (1.0 - streak * 0.25), ${strength.toFixed(2)}); }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-roughnessFactor = clamp(roughnessFactor + (gN(vWPos * 4.0) - 0.5) * 0.25, 0.05, 1.0);`);
+roughnessFactor = clamp(roughnessFactor + (gN(vWPos * 4.0) - 0.5) * 0.25 + (0.5 - gHgt) * 0.3, 0.05, 1.0);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+${tex ? '{ float hh = gHgt * uBump * 0.06; normal = gPerturb(-vViewPosition, normal, vec2(dFdx(hh), dFdy(hh)) * 1.0, faceDirection); }' : ''}`);
   };
-  m.customProgramCacheKey = () => 'grime' + strength + (o.wind ? 'w' : '');
+  m.customProgramCacheKey = () => 'grime' + strength + (o.wind ? 'w' + (o.windAmt ?? '') : '') + (tex ? 't' : '');
+  allSurfaceMats.push(m);
   return m;
 }
+// Kulay → litratong texture (para sa mga lumang tawag na mat(color))
+const TEXMAP = {
+  0x5d8a3a: { tex: 'leafy_grass', scale: 0.32, color: 0xa8b090 },
+  0x6f6a64: { tex: 'asphalt_02', scale: 0.22, color: 0x8a8a8a },
+  0xa08462: { tex: 'stony_dirt_path', scale: 0.3, color: 0xb0a090 },
+  0xb8a88c: { tex: 'cobblestone_floor_01', scale: 0.4, color: 0xa8a49a },
+  0xe6d5b8: { tex: 'coral_stone_wall', scale: 0.3, color: 0xcfc4b0 },
+  0xc4ae8a: { tex: 'coral_fort_wall_01', scale: 0.4, color: 0xb0a088 },
+  0x8a4a3a: { tex: 'clay_roof_tiles_02', scale: 0.45, color: 0xa07060 },
+  0xb89660: { tex: 'bamboo_wall', scale: 0.45, color: 0xb0a080 },
+  0x9c7c4a: { tex: 'thatch_roof_angled', scale: 0.35, color: 0xa09070 },
+  0x5b4020: { tex: 'rough_wood', scale: 0.6, color: 0x8a7a68 },
+  0x6b4a2a: { tex: 'weathered_planks', scale: 0.5, color: 0x8a7a68 },
+  0x7a5230: { tex: 'wood_planks', scale: 0.5, color: 0x9a8070 },
+  0x9b6b3f: { tex: 'wood_planks', scale: 0.5, color: 0xa88a70 },
+  0x5a3a20: { tex: 'rough_wood', scale: 0.6, color: 0x7a6a58 },
+  0x6b4a2e: { tex: 'rough_wood', scale: 0.6, color: 0x8a7a68 },
+  0x8a6d3b: { tex: 'weathered_planks', scale: 0.6, color: 0x9a8a70 },
+  0x4a2e17: { tex: 'dark_wooden_planks', scale: 0.6, color: 0x8a7a70 },
+  0x4a3218: { tex: 'dark_wooden_planks', scale: 0.6, color: 0x8a7a70 },
+  0x3b2a1a: { tex: 'dark_wooden_planks', scale: 0.6, color: 0x6a5a50 },
+  0x3d2f22: { tex: 'bark_willow', scale: 0.5, color: 0x7a7068 },
+  0x2e231a: { tex: 'bark_willow', scale: 0.6, color: 0x6a6058 },
+  0x8b7355: { tex: 'rough_wood', scale: 0.4, color: 0xa09080 },
+  0xa08566: { tex: 'rough_wood', scale: 0.6, color: 0xb0a090 },
+  0x8a7350: { tex: 'brown_mud_dry', scale: 0.4, color: 0x9a8a78 },
+  0x7cb342: { tex: 'brown_mud_leaves_01', scale: 0.25, color: 0x6a8a50 },
+  0x4a4a52: { tex: 'brown_mud', scale: 0.8, color: 0x606068 },
+};
+// Metal (jeepney na stainless, poste)
+const METALS = { 0xdfe3e8: 0.25, 0xcfd4da: 0.3, 0xbdc3c7: 0.2, 0x95a5a6: 0.35, 0x2b2b2b: 0.55, 0xd4af37: 0.3, 0xb8860b: 0.35 };
 const matCache = new Map();
 function mat(color, o = {}) {
-  const key = color + (o.wind ? 'w' : '') + (o.rough ?? '') + (o.grime ?? '');
+  const key = color + (o.wind ? 'w' : '') + (o.rough ?? '') + (o.grime ?? '') + (o.tex ?? '');
   if (!matCache.has(key)) {
-    matCache.set(key, addGrime(new THREE.MeshStandardMaterial({ color, roughness: o.rough ?? 0.88, metalness: 0, side: o.wind ? THREE.DoubleSide : THREE.FrontSide }), o));
+    const plain = !Object.keys(o).length;
+    const T = o.tex ? o : plain ? TEXMAP[color] : null;
+    let m;
+    if (plain && METALS[color] != null) {
+      m = addGrime(new THREE.MeshStandardMaterial({ color, roughness: METALS[color], metalness: 0.85 }), { grime: 0.35 });
+    } else {
+      m = addGrime(new THREE.MeshStandardMaterial({ color: T && T.color != null ? T.color : color, roughness: o.rough ?? 0.88, metalness: 0, side: o.wind ? THREE.DoubleSide : THREE.FrontSide }), Object.assign({}, o, T ? { tex: T.tex, scale: T.scale } : {}));
+    }
+    matCache.set(key, m);
   }
   return matCache.get(key);
+}
+// Textured na materyal na may sariling tint (hal. pader ng bahay na pininturahan)
+function texMat(tex, color = 0xffffff, scale = 0.4, rough = 0.9) {
+  return mat(color, { tex, scale, rough, color });
 }
 // Balat: medyo makinis, may "subsurface" na pula sa gilid
 const skinCache = new Map();
@@ -220,8 +330,9 @@ function buildGround() {
     if (Math.abs(z - 42) < 5 || (x > -2 && x < 32 && z > -15 && z < 15) || Math.abs(x) < 2.5) continue;
     tufts.push([x, z, 0.5 + R() * 0.6, R() * 3]);
   }
-  const tg = new THREE.ConeGeometry(0.18, 0.6, 3);
-  const ti = new THREE.InstancedMesh(tg, mat(0x4f7a2e, { wind: true, rough: 0.95 }), tufts.length);
+  const tg = mergeGeometries([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.9, 0.6).rotateY((k * Math.PI) / 3)));
+  { const nn = tg.attributes.normal; for (let k = 0; k < nn.count; k++) nn.setXYZ(k, 0, 1, 0); }
+  const ti = new THREE.InstancedMesh(tg, grassMat, tufts.length);
   const d = new THREE.Object3D();
   tufts.forEach(([x, z, s, r], i) => {
     d.position.set(x, 0.3 * s, z);
@@ -248,8 +359,6 @@ function buildGround() {
   flat(40, 3, 0xa08462, -18, -18);
   // Plaza
   flat(32, 28, 0xb8a88c, 15, 0, 0.03);
-  for (let i = 0; i <= 8; i++) flat(0.12, 28, 0x9c8c72, -1 + i * 4, 0, 0.04);
-  for (let i = 0; i <= 7; i++) flat(32, 0.12, 0x9c8c72, 15, -14 + i * 4, 0.04);
 }
 
 function buildChurch() {
@@ -293,8 +402,12 @@ function buildHouse(x, z, w, d, wallC, roofC, opts = {}) {
     box(g, w + 0.4, 0.3, d + 0.4, 0x6b4a2a, 0, lift, 0);
   }
   const h = opts.h || 3;
-  box(g, w, h, d, wallC, 0, lift + h / 2, 0);
-  const roof = mesh(g, new THREE.ConeGeometry(Math.max(w, d) * 0.82, opts.roofH || 2.6, 4), mat(roofC), 0, lift + h + (opts.roofH || 2.6) / 2, 0);
+  // pader: kawayan (kubo), tabla (bahay-kahoy), o pinturang plaster
+  const wallM = TEXMAP[wallC] ? mat(wallC) : wallC === 0x8a5a33 ? texMat('weathered_brown_planks', 0xb09a88, 0.5) : texMat('white_plaster_rough_01', wallC, 0.35);
+  box(g, w, h, d, 0, 0, lift + h / 2, 0, { material: wallM });
+  // bubong: nipa (kubo) o kalawanging yero
+  const roofM = roofC === 0x9c7c4a ? mat(roofC) : texMat('rusty_corrugated_iron', roofC === 0x6b4a2e ? 0xb0a090 : 0xc09080, 0.5, 0.6);
+  const roof = mesh(g, new THREE.ConeGeometry(Math.max(w, d) * 0.82, opts.roofH || 2.6, 4), roofM, 0, lift + h + (opts.roofH || 2.6) / 2, 0);
   roof.rotation.y = Math.PI / 4;
   const win = glowMat(0x3a2a18, 0xffc766);
   box(g, 1.2, 1, 0.12, 0, -w / 4, lift + h * 0.55, d / 2 + 0.02, { material: win });
@@ -408,31 +521,353 @@ function buildShed() {
   g.position.set(-14, 0, 36);
   scene.add(g);
   for (const [x, z] of [[-2, -1.2], [2, -1.2], [-2, 1.2], [2, 1.2]]) box(g, 0.2, 2.6, 0.2, 0x6b4a2e, x, 1.3, z);
-  box(g, 5, 0.25, 3.2, 0xc0392b, 0, 2.7, 0);
+  box(g, 5, 0.25, 3.2, 0, 0, 2.7, 0, { material: texMat('corrugated_iron_02', 0xc0392b, 0.6, 0.5) });
   box(g, 3.6, 0.15, 0.8, 0x8a6d3b, 0, 0.6, -0.8);
   addRect(-16.2, 34.6, -11.8, 35.4);
 }
 
+// ============================================================
+//  HALAMAN — mga dahon na pininturahan sa canvas (alpha cards),
+//  niyog, saging, damo, at totoong 3D na pako at palumpong (Poly Haven)
+// ============================================================
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+const leafClusterTex = canvasTex(512, 512, (x, W, H) => {
+  const R = rng(11);
+  for (let i = 0; i < 260; i++) {
+    const a = R() * Math.PI * 2, d = Math.sqrt(R()) * 210;
+    const cx = W / 2 + Math.cos(a) * d, cy = H / 2 + Math.sin(a) * d * 0.9;
+    const len = 26 + R() * 26, wid = 9 + R() * 9, rot = a + (R() - 0.5) * 1.2;
+    const l = 14 + R() * 22, hue = 88 + R() * 34;
+    x.save();
+    x.translate(cx, cy);
+    x.rotate(rot);
+    const g = x.createLinearGradient(0, -wid, 0, wid);
+    g.addColorStop(0, `hsl(${hue},${45 + R() * 20}%,${l + 8}%)`);
+    g.addColorStop(1, `hsl(${hue},${40 + R() * 20}%,${l - 4}%)`);
+    x.fillStyle = g;
+    x.beginPath();
+    x.moveTo(-len / 2, 0);
+    x.quadraticCurveTo(0, -wid, len / 2, 0);
+    x.quadraticCurveTo(0, wid, -len / 2, 0);
+    x.fill();
+    x.strokeStyle = `hsla(${hue},40%,${l + 18}%,0.6)`;
+    x.lineWidth = 1;
+    x.beginPath();
+    x.moveTo(-len / 2, 0);
+    x.lineTo(len / 2, 0);
+    x.stroke();
+    x.restore();
+  }
+});
+const frondTex = canvasTex(128, 1024, (x, W, H) => {
+  const R = rng(23);
+  for (let y = 30; y < H - 10; y += 7) {
+    const t = y / H, len = (W / 2 - 4) * Math.sin(Math.PI * Math.min(1, t * 1.15)) * (0.75 + R() * 0.25);
+    for (const s of [-1, 1]) {
+      x.strokeStyle = `hsl(${85 + R() * 25},${45 + R() * 15}%,${18 + R() * 16}%)`;
+      x.lineWidth = 3 + R() * 2.5;
+      x.beginPath();
+      x.moveTo(W / 2, y);
+      x.quadraticCurveTo(W / 2 + s * len * 0.5, y + 10, W / 2 + s * len, y + 26 + R() * 10);
+      x.stroke();
+    }
+  }
+  x.strokeStyle = '#6b6a3a';
+  x.lineWidth = 5;
+  x.beginPath();
+  x.moveTo(W / 2, 0);
+  x.lineTo(W / 2, H);
+  x.stroke();
+});
+const grassTex = canvasTex(256, 256, (x, W, H) => {
+  const R = rng(31);
+  for (let i = 0; i < 70; i++) {
+    const bx = 10 + R() * (W - 20), top = H * (0.05 + R() * 0.5), bend = (R() - 0.5) * 70;
+    const wid = 3 + R() * 4;
+    x.fillStyle = `hsl(${70 + R() * 40},${35 + R() * 25}%,${16 + R() * 22}%)`;
+    x.beginPath();
+    x.moveTo(bx - wid, H);
+    x.quadraticCurveTo(bx + bend * 0.4, (H + top) / 2, bx + bend, top);
+    x.quadraticCurveTo(bx + bend * 0.4 + wid * 0.5, (H + top) / 2, bx + wid, H);
+    x.fill();
+  }
+});
+const bananaTex = canvasTex(256, 1024, (x, W, H) => {
+  const g = x.createLinearGradient(0, 0, W, 0);
+  g.addColorStop(0, '#3d6b25');
+  g.addColorStop(0.5, '#5d8f35');
+  g.addColorStop(1, '#3a6522');
+  x.fillStyle = g;
+  x.beginPath();
+  x.moveTo(W / 2, 0);
+  x.bezierCurveTo(W + 10, H * 0.2, W + 10, H * 0.8, W / 2, H);
+  x.bezierCurveTo(-10, H * 0.8, -10, H * 0.2, W / 2, 0);
+  x.fill();
+  x.strokeStyle = '#a8b060';
+  x.lineWidth = 6;
+  x.beginPath();
+  x.moveTo(W / 2, 0);
+  x.lineTo(W / 2, H);
+  x.stroke();
+  // mga punit ng dahon
+  const R = rng(5);
+  x.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 14; i++) {
+    const y = 60 + R() * (H - 120), s = R() < 0.5 ? -1 : 1;
+    x.lineWidth = 2 + R() * 3;
+    x.beginPath();
+    x.moveTo(W / 2 + s * 8, y);
+    x.lineTo(W / 2 + s * W, y + 30 + R() * 20);
+    x.stroke();
+  }
+  x.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 30; i++) {
+    x.strokeStyle = 'rgba(30,50,15,0.25)';
+    x.lineWidth = 1;
+    const y = R() * H;
+    x.beginPath();
+    x.moveTo(W / 2, y);
+    x.lineTo(R() < 0.5 ? 0 : W, y + 40);
+    x.stroke();
+  }
+});
+function foliageMat(tex, windAmt, windBase = 0) {
+  const m = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.75, metalness: 0 });
+  return addGrime(m, { wind: true, windAmt, windBase, grime: 0.4 });
+}
+const leafMat = foliageMat(leafClusterTex, 0.025);
+const frondMat = foliageMat(frondTex, 0.03);
+const bananaMat = foliageMat(bananaTex, 0.05);
+const grassMat = foliageMat(grassTex, 0.35, 0.3);
+const barkMat = texMat('bark_brown_02', 0xb0a090, 0.9, 0.95);
+const palmBarkMat = texMat('palm_bark', 0xc0b0a0, 0.8, 0.95);
+
+// Pinagsamang geometry na may "spherical" na normal (para malago ang itsura ng dahon)
+function leafCards(n, center, rad, size, R) {
+  const geos = [];
+  for (let i = 0; i < n; i++) {
+    const p = new THREE.PlaneGeometry(size * (0.8 + R() * 0.5), size * (0.8 + R() * 0.5));
+    const e = new THREE.Euler(R() * Math.PI, R() * Math.PI * 2, R() * Math.PI);
+    p.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(e));
+    const a = R() * Math.PI * 2, b = Math.acos(R() * 2 - 1);
+    const off = new THREE.Vector3(Math.sin(b) * Math.cos(a) * rad.x, Math.cos(b) * rad.y, Math.sin(b) * Math.sin(a) * rad.z).multiplyScalar(0.55 + R() * 0.45);
+    p.translate(center.x + off.x, center.y + off.y, center.z + off.z);
+    const pos = p.attributes.position, nor = p.attributes.normal, v = new THREE.Vector3();
+    for (let k = 0; k < pos.count; k++) {
+      v.set(pos.getX(k) - center.x, (pos.getY(k) - center.y) * 0.6 + rad.y * 0.4, pos.getZ(k) - center.z).normalize();
+      nor.setXYZ(k, v.x, v.y, v.z);
+    }
+    geos.push(p);
+  }
+  return mergeGeometries(geos);
+}
+function treeVariant(seed) {
+  const R = rng(seed);
+  const H = 4 + R() * 2.5;
+  const wood = [];
+  const trunk = new THREE.CylinderGeometry(0.2, 0.42, H, 9, 5);
+  trunk.translate(0, H / 2, 0);
+  const tp = trunk.attributes.position;
+  for (let k = 0; k < tp.count; k++) tp.setX(k, tp.getX(k) + Math.sin(tp.getY(k) * 0.7 + seed) * 0.12);
+  trunk.computeVertexNormals();
+  wood.push(trunk);
+  const crowns = [];
+  for (let b = 0; b < 4; b++) {
+    const a = (b / 4) * Math.PI * 2 + R(), len = 1.6 + R() * 1.2, y0 = H * (0.55 + R() * 0.3);
+    const br = new THREE.CylinderGeometry(0.06, 0.13, len, 6);
+    br.translate(0, len / 2, 0);
+    br.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(0, -a, 0.75 + R() * 0.3)));
+    br.translate(0, y0, 0);
+    wood.push(br);
+    crowns.push(new THREE.Vector3(Math.cos(a) * len * 0.75, y0 + len * 0.6, Math.sin(a) * len * 0.75));
+  }
+  const leaves = [leafCards(26, new THREE.Vector3(0, H + 1.0, 0), new THREE.Vector3(2.4, 1.6, 2.4), 2.6, R)];
+  for (const c of crowns) leaves.push(leafCards(9, c, new THREE.Vector3(1.3, 0.9, 1.3), 1.9, R));
+  return { wood: mergeGeometries(wood), leaves: mergeGeometries(leaves), H };
+}
+
+// Niyog: kurbadang puno, mga palapa na nakalaylay, at mga bunga
 function buildCoconut(x, z, h) {
+  const R = rng(x * 13 + z * 7);
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  g.rotation.y = R() * Math.PI * 2;
+  scene.add(g);
+  const H = h * 1.05, lean = 0.6 + R() * 1.4;
+  const trunk = new THREE.CylinderGeometry(0.17, 0.26, H, 10, 16);
+  trunk.translate(0, H / 2, 0);
+  const tp = trunk.attributes.position;
+  for (let k = 0; k < tp.count; k++) {
+    const t = tp.getY(k) / H;
+    tp.setX(k, tp.getX(k) + lean * t * t);
+    // mga singsing ng puno ng niyog
+    const ring = 1 + Math.max(0, Math.sin(tp.getY(k) * 9)) * 0.04;
+    tp.setX(k, tp.getX(k) * 1);
+    tp.setZ(k, tp.getZ(k) * ring);
+  }
+  trunk.computeVertexNormals();
+  const tm = new THREE.Mesh(trunk, palmBarkMat);
+  tm.castShadow = tm.receiveShadow = true;
+  g.add(tm);
+  const top = new THREE.Vector3(lean, H, 0);
+  const fronds = [];
+  const nF = 11;
+  for (let i = 0; i < nF; i++) {
+    const L = 3.6 + R() * 1.4, Wd = 1.1;
+    const f = new THREE.PlaneGeometry(Wd, L, 1, 10);
+    f.rotateX(-Math.PI / 2); // nakahiga, haba sa -Z
+    f.translate(0, 0, -L / 2);
+    const fp = f.attributes.position;
+    const up = 0.5 + R() * 0.5;
+    for (let k = 0; k < fp.count; k++) {
+      const t = -fp.getZ(k) / L;
+      fp.setY(k, fp.getY(k) + up * t * L * 0.5 - t * t * L * (0.75 + R() * 0.02));
+      // bahagyang V na hugis ng palapa
+      fp.setY(k, fp.getY(k) - Math.abs(fp.getX(k)) * 0.35);
+    }
+    f.computeVertexNormals();
+    f.rotateY((i / nF) * Math.PI * 2 + R() * 0.3);
+    f.translate(top.x, top.y, top.z);
+    fronds.push(f);
+  }
+  const fm = new THREE.Mesh(mergeGeometries(fronds), frondMat);
+  fm.castShadow = true;
+  g.add(fm);
+  const nutM = mat(0x4a3a1e, { rough: 0.6 });
+  for (let i = 0; i < 4; i++) {
+    const n = mesh(g, new THREE.SphereGeometry(0.17, 10, 8), nutM, top.x + Math.cos(i * 1.6) * 0.25, top.y - 0.3, top.z + Math.sin(i * 1.6) * 0.25);
+    n.scale.set(1, 1.15, 1);
+  }
+  addCircle(x, z, 0.35);
+}
+
+// Halamang saging
+function buildBanana(x, z) {
+  const R = rng(x * 3 + z);
   const g = new THREE.Group();
   g.position.set(x, 0, z);
   scene.add(g);
-  const lean = (x * 7 + z * 3) % 5 * 0.03;
-  let px = 0, py = 0;
-  for (let i = 0; i < h; i++) {
-    box(g, 0.35, 1.02, 0.35, i % 2 ? 0x7a5a3a : 0x664a2f, px, py + 0.5, 0);
-    py += 1;
-    px += lean;
-  }
-  const leaf = mat(0x3f7d3a);
+  const stem = mesh(g, new THREE.CylinderGeometry(0.16, 0.24, 2.4, 10), mat(0x5d7a35, { rough: 0.7 }), 0, 1.2, 0);
+  stem.castShadow = true;
+  const leaves = [];
   for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const m = box(g, 2.8, 0.08, 0.6, 0, px + Math.cos(a) * 1.3, py - 0.2, Math.sin(a) * 1.3, { material: leaf });
-    m.rotation.y = -a;
-    m.rotation.z = -0.35;
+    const L = 2.2 + R() * 0.8;
+    const f = new THREE.PlaneGeometry(0.75, L, 1, 8);
+    f.rotateX(-Math.PI / 2);
+    f.translate(0, 0, -L / 2);
+    const fp = f.attributes.position;
+    for (let k = 0; k < fp.count; k++) {
+      const t = -fp.getZ(k) / L;
+      fp.setY(k, fp.getY(k) + t * L * 0.9 - t * t * L * 0.85);
+    }
+    f.computeVertexNormals();
+    f.rotateY((i / 7) * Math.PI * 2 + R());
+    f.translate(0, 2.3, 0);
+    leaves.push(f);
   }
-  for (let i = 0; i < 3; i++) mesh(g, new THREE.SphereGeometry(0.2, 5, 4), mat(0x5a3d1e), px + Math.cos(i * 2) * 0.25, py - 0.35, Math.sin(i * 2) * 0.25);
-  addCircle(x, z, 0.35);
+  const lm = new THREE.Mesh(mergeGeometries(leaves), bananaMat);
+  lm.castShadow = true;
+  g.add(lm);
+  addCircle(x, z, 0.3);
+}
+
+const forestTrunks = [];
+function buildForest() {
+  const R = rng(42);
+  const spots = [];
+  for (let i = 0; i < 260 && spots.length < 170; i++) {
+    const x = -86 + R() * 172, z = -44 - R() * 48;
+    if (Math.abs(x) < 3.2) continue; // daan
+    if (Math.hypot(x, z + 64) < 12) continue; // lugar ng balete
+    spots.push([x, z, 0.8 + R() * 0.7]);
+  }
+  // ilang puno sa likod ng kubo
+  for (const s of [[-50, -38, 1.1], [-46, -42, 1], [-52, -30, 1.2], [-30, -40, 0.9]]) spots.push(s);
+  const variants = [treeVariant(1), treeVariant(2), treeVariant(3)];
+  const byV = [[], [], []];
+  spots.forEach((s, i) => byV[i % 3].push(s));
+  const d = new THREE.Object3D();
+  variants.forEach((v, vi) => {
+    const list = byV[vi];
+    const wood = new THREE.InstancedMesh(v.wood, barkMat, list.length);
+    const leaves = new THREE.InstancedMesh(v.leaves, leafMat, list.length);
+    list.forEach(([x, z, s], i) => {
+      d.position.set(x, 0, z);
+      d.scale.set(s * 1.25, s * 1.25, s * 1.25);
+      d.rotation.set(0, (x * 3.1 + z) % 6.28, 0);
+      d.updateMatrix();
+      wood.setMatrixAt(i, d.matrix);
+      leaves.setMatrixAt(i, d.matrix);
+      addCircle(x, z, 0.55 * s);
+      forestTrunks.push([x, z]);
+    });
+    for (const m of [wood, leaves]) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      scene.add(m);
+    }
+  });
+}
+
+// Totoong 3D na modelo mula sa Poly Haven (CC0): pako, palumpong, monobloc
+const PHM = (slug) => `https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/${slug}/${slug}_1k.gltf`;
+function scatterModel(slug, spots, scale, opts = {}) {
+  gltfLoader.load(PHM(slug), (gl) => {
+    const parts = [];
+    gl.scene.updateMatrixWorld(true);
+    gl.scene.traverse((o) => { if (o.isMesh) parts.push(o); });
+    for (const part of parts) {
+      const geo = part.geometry.clone().applyMatrix4(part.matrixWorld);
+      const m = part.material;
+      if (opts.tint) m.color.multiplyScalar(opts.tint);
+      if (opts.wind) {
+        m.side = THREE.DoubleSide;
+        addGrime(m, { wind: true, windAmt: opts.wind, windBase: 0, grime: 0.3 });
+      }
+      const inst = new THREE.InstancedMesh(geo, m, spots.length);
+      const d = new THREE.Object3D();
+      spots.forEach(([x, z, r, s = 1, y = 0], i) => {
+        d.position.set(x, y, z);
+        d.rotation.set(0, r, 0);
+        d.scale.setScalar(scale * s);
+        d.updateMatrix();
+        inst.setMatrixAt(i, d.matrix);
+      });
+      inst.castShadow = opts.shadow !== false;
+      inst.receiveShadow = true;
+      scene.add(inst);
+    }
+  }, undefined, () => console.warn('model failed', slug));
+}
+function buildPlants() {
+  const R = rng(77), hi = GFX === 'high';
+  // mga pako sa gilid ng gubat at sa paligid ng balete
+  const ferns = [];
+  for (let i = 0; i < (hi ? 170 : 60); i++) {
+    const x = -86 + R() * 172, z = -38 - R() * 54;
+    if (Math.abs(x) < 2.6 || Math.hypot(x, z + 64) < 5) continue;
+    ferns.push([x, z, R() * 6.28, 0.6 + R() * 0.6]);
+  }
+  for (let i = 0; i < 24; i++) {
+    const a = R() * Math.PI * 2, r = 6 + R() * 5;
+    ferns.push([Math.cos(a) * r, -64 + Math.sin(a) * r, R() * 6.28, 0.7 + R() * 0.5]);
+  }
+  scatterModel('fern_02', ferns, 0.85, { wind: 0.04 });
+  // mga palumpong sa tabi ng bahay at bakod
+  const shrubs = [[-24, 4.5], [-32, 13], [-9, -11.5], [-2.5, -13], [31, -14], [37.5, -22], [41.5, 15], [35, 21], [21, 25.5], [27.5, 25.5], [3.5, 22], [-36, -26], [-45, -30], [-44, -38], [-12, 30], [16, 30], [44, 2], [44, -12], [-60, 0], [-70, 10]];
+  scatterModel('shrub_02', shrubs.map(([x, z]) => [x, z, R() * 6.28, 0.25 + R() * 0.12]), 1, { wind: 0.02 });
+  // monobloc sa tindahan ni Aling Nena at sa plaza
+  const chairs = [[4.5, 23, 2.6], [5.6, 24, 3.4], [11.5, 23.5, -2.5], [6, 4, 0.5], [7, 3.2, 1.2], [23, -4, 3.9]];
+  scatterModel('plastic_monobloc_chair_01', chairs.map(([x, z, r]) => [x, z, r, 1]), 1, { tint: 0.5 });
 }
 
 function buildRice() {
@@ -469,48 +904,6 @@ function buildRice() {
   addCircle(62, 2, 1.4);
 }
 
-const forestTrunks = [];
-function buildForest() {
-  const R = rng(42);
-  const spots = [];
-  for (let i = 0; i < 260 && spots.length < 170; i++) {
-    const x = -86 + R() * 172, z = -44 - R() * 48;
-    if (Math.abs(x) < 3.2) continue; // daan
-    if (Math.hypot(x, z + 64) < 12) continue; // lugar ng balete
-    spots.push([x, z, 0.8 + R() * 0.7]);
-  }
-  // ilang puno sa likod ng kubo
-  for (const s of [[-50, -38, 1.1], [-46, -42, 1], [-52, -30, 1.2], [-30, -40, 0.9]]) spots.push(s);
-  const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 4, 6);
-  const leafGeo = new THREE.IcosahedronGeometry(2.6, 0);
-  const trunks = new THREE.InstancedMesh(trunkGeo, mat(0x4a3322), spots.length);
-  const leaves = new THREE.InstancedMesh(leafGeo, mat(0x2f5a2a), spots.length);
-  const leaves2 = new THREE.InstancedMesh(leafGeo, mat(0x264d24), spots.length);
-  const d = new THREE.Object3D();
-  spots.forEach(([x, z, s], i) => {
-    d.position.set(x, 2 * s, z);
-    d.scale.set(s, s, s);
-    d.rotation.set(0, 0, 0);
-    d.updateMatrix();
-    trunks.setMatrixAt(i, d.matrix);
-    d.position.set(x, 5.2 * s, z);
-    d.rotation.set(0, i, 0);
-    d.updateMatrix();
-    leaves.setMatrixAt(i, d.matrix);
-    d.position.set(x + 0.4, 6.8 * s, z - 0.3);
-    d.scale.set(s * 0.7, s * 0.7, s * 0.7);
-    d.updateMatrix();
-    leaves2.setMatrixAt(i, d.matrix);
-    addCircle(x, z, 0.55 * s);
-    forestTrunks.push([x, z]);
-  });
-  for (const m of [trunks, leaves, leaves2]) {
-    m.castShadow = true;
-    m.receiveShadow = true;
-    scene.add(m);
-  }
-}
-
 let sapling;
 function buildBalete() {
   const g = new THREE.Group();
@@ -545,15 +938,7 @@ const fireGroup = new THREE.Group();
 function buildKubo() {
   kubo = buildHouse(-40, -34, 6, 5, 0xb89660, 0x9c7c4a, { stilts: true, h: 2.4, roofH: 2.8, ry: Math.PI / 4 });
   // halamang saging
-  for (const [x, z] of [[-33, -38], [-46, -28]]) {
-    box(scene, 0.4, 3, 0.4, 0x4b6b2a, x, 1.5, z);
-    for (let i = 0; i < 4; i++) {
-      const l = box(scene, 2.2, 0.08, 0.7, 0x5b8c32, x + Math.cos(i * 1.6), 3, z + Math.sin(i * 1.6));
-      l.rotation.y = -i * 1.6;
-      l.rotation.z = -0.4;
-    }
-    addCircle(x, z, 0.3);
-  }
+  for (const [x, z] of [[-33, -38], [-46, -28], [-35.5, -40], [-24, 2], [2, 26]]) buildBanana(x, z);
   fireGroup.position.set(-40, 0, -34);
   const coneGeo = new THREE.ConeGeometry(0.6, 2.2, 10);
   const R = rng(7);
@@ -650,7 +1035,7 @@ function pm(parent, geo, material, x, y, z, sx = 1, sy = 1, sz = 1) {
 // HDR na kulay (lampas 1.0) para kumislap sa bloom
 const hot = (r, g, b, extra = {}) => new THREE.MeshBasicMaterial(Object.assign({ color: new THREE.Color(r, g, b) }, extra));
 
-function person(o) {
+function personSimple(o) {
   const g = new THREE.Group();
   const parts = {};
   const skin = skinMat(o.skin);
@@ -771,6 +1156,378 @@ function person(o) {
   g.userData.parts = parts;
   g.userData.blink = Math.random() * 4;
   return g;
+}
+
+// ============================================================
+//  MGA TAO — totoong 3D na tao (Microsoft RocketBox, MIT) na may
+//  motion-capture na galaw, at nakakakilabot na itsura at kilos:
+//  maputla, nakatitig, bihirang kumurap, ngumingisi at kumikislot sa gabi.
+// ============================================================
+const PEOPLE = 'assets/people/';
+const PERSON_SCALE = 0.0105; // cm → m (~1.8 m na tao)
+const GENDER = { lola: 'f', tess: 'f', beth: 'f', nena: 'f', v4: 'f', v5: 'f', tonyo: 'm', kapitan: 'm', padre: 'm', kardo: 'm', v1: 'm', v2: 'm', v3: 'm' };
+const ANIMS = {
+  f: { idle: ['f_idle_neutral_01', 'f_idle_look_around_01', 'f_idle_roll_head_01'], talk: ['f_gestic_talk_neutral_01', 'f_gestic_talk_nervous_01'], angry: ['f_gestic_talk_angry_01'] },
+  m: { idle: ['m_idle_neutral_01', 'm_idle_look_around_01', 'm_idle_roll_head_01'], talk: ['m_gestic_talk_neutral_01', 'm_gestic_talk_nervous_01'], angry: ['m_idle_angry_01', 'm_gestic_listen_angry_01', 'm_cheer_01'] },
+};
+// Gaano kakilabot ngayon (0 = araw, 1 = gabi/takot); itinatakda sa stepTime
+const creep = { value: 0.35 };
+const fbxManager = new THREE.LoadingManager();
+// gamit natin ang sariling JPG; huwag nang i-load ang TGA na nasa loob ng FBX
+fbxManager.addHandler(/\.tga$/i, { load: () => new THREE.Texture(), setPath() { return this; }, setCrossOrigin() { return this; } });
+const fbxLoader = new FBXLoader(fbxManager);
+const peopleTex = new THREE.TextureLoader();
+const clipCache = {};
+function loadClip(name) {
+  if (!clipCache[name]) {
+    clipCache[name] = fetch(PEOPLE + 'anims/' + name + '.json').then((r) => r.json()).then((j) => THREE.AnimationClip.parse(j));
+  }
+  return clipCache[name];
+}
+function ptex(key, file, srgb = true) {
+  const t = peopleTex.load(PEOPLE + key + '/' + file);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+// Shader ng balat/damit: maputla at abuhing balat, pasa, dumi at tilamsik ng dugo (lumalala sa gabi)
+function creepify(m, kind, eyes) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uCreep = creep;
+    if (eyes) { sh.uniforms.uEyeL = eyes.l; sh.uniforms.uEyeR = eyes.r; }
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vObj;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObj = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vObj;
+uniform float uCreep;
+${kind === 'head' ? 'uniform vec3 uEyeL, uEyeR;' : ''}
+float cH(vec3 p){ return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float cN(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(mix(cH(i), cH(i+vec3(1,0,0)), f.x), mix(cH(i+vec3(0,1,0)), cH(i+vec3(1,1,0)), f.x), f.y),
+             mix(mix(cH(i+vec3(0,0,1)), cH(i+vec3(1,0,1)), f.x), mix(cH(i+vec3(0,1,1)), cH(i+vec3(1,1,1)), f.x), f.y), f.z); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+{ vec3 c = diffuseColor.rgb;
+  float lum = dot(c, vec3(0.299, 0.587, 0.114));
+  // balat ba? (mapula-pula/kayumanggi na tono)
+  float skin = smoothstep(0.02, 0.12, c.r - c.b) * smoothstep(0.03, 0.2, lum);
+  float pale = ${kind === 'head' ? '0.55' : '0.4'} + uCreep * 0.4;
+  vec3 ash = vec3(lum) * vec3(0.92, 0.96, 0.9) * (1.0 + uCreep * 0.15);
+  c = mix(c, ash, skin * pale);
+  // mga pasa at ugat na kulay-ube
+  float bruise = smoothstep(0.62, 0.85, cN(vObj * 0.09)) * skin * uCreep;
+  c = mix(c, c * vec3(0.55, 0.42, 0.6), bruise * 0.7);
+  // dumi
+  c *= 0.82 + cN(vObj * 0.35) * 0.25;
+  // tilamsik ng dugo (sa gabi)
+  float sp = cN(vObj * 0.6 + 3.1) * 0.7 + cN(vObj * 2.3) * 0.3;
+  float blood = smoothstep(0.74, 0.8, sp) * smoothstep(0.35, 0.9, uCreep);
+  c = mix(c, vec3(0.16, 0.0, 0.01), blood * 0.9);
+  ${kind === 'head' ? `
+  // lubog at maitim na mata; sa gabi, itim na itim ang mga mata
+  float de = min(distance(vObj, uEyeL), distance(vObj, uEyeR));
+  float sock = smoothstep(3.8, 1.7, de);
+  c = mix(c, c * vec3(0.32, 0.18, 0.2), sock * (0.35 + uCreep * 0.45));
+  float ball = smoothstep(1.68, 1.56, de); // ang eyeball ay ~1.5 cm mula sa buto
+  c = mix(c, vec3(0.012, 0.006, 0.006), ball * smoothstep(0.55, 0.95, uCreep));` : ''}
+  diffuseColor.rgb = c * (1.0 - uCreep * 0.12); }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+{ float sp = cN(vObj * 0.6 + 3.1) * 0.7 + cN(vObj * 2.3) * 0.3;
+  roughnessFactor = mix(roughnessFactor, 0.15, smoothstep(0.74, 0.8, sp) * smoothstep(0.35, 0.9, uCreep)); }`);
+  };
+  m.customProgramCacheKey = () => 'creep' + kind;
+  return m;
+}
+const templates = {};
+function loadTemplate(key) {
+  if (!templates[key]) {
+    templates[key] = new Promise((res, rej) => {
+      fbxLoader.load(PEOPLE + key + '/model.fbx', (o) => {
+        const eyes = { l: { value: new THREE.Vector3(0, -999, 0) }, r: { value: new THREE.Vector3(0, -999, 0) } };
+        const mats = {
+          body: creepify(new THREE.MeshStandardMaterial({ map: ptex(key, 'body.jpg'), normalMap: ptex(key, 'bodyn.jpg', false), roughness: 0.88, metalness: 0 }), 'body'),
+          head: creepify(new THREE.MeshStandardMaterial({ map: ptex(key, 'head.jpg'), normalMap: ptex(key, 'headn.jpg', false), roughness: 0.6, metalness: 0 }), 'head', eyes),
+          opacity: null, // buhok/pilikmata: ilo-load lang kung mayroon ang modelo
+        };
+        o.traverse((c) => {
+          if (!c.isMesh) return;
+          c.material = [].concat(c.material).map((mm) => {
+            if (/opacity/i.test(mm.name)) return mats.opacity || (mats.opacity = new THREE.MeshStandardMaterial({ map: ptex(key, 'opacity.png'), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.7, metalness: 0 }));
+            return /head/i.test(mm.name) ? mats.head : mats.body;
+          });
+          if (c.material.length === 1) c.material = c.material[0];
+          c.castShadow = c.receiveShadow = true;
+          c.frustumCulled = false;
+        });
+        // posisyon ng mata sa bind-space ng mesh (para sa lubog na mata)
+        o.updateMatrixWorld(true);
+        let skinMesh = null;
+        o.traverse((c) => { if (c.isSkinnedMesh) skinMesh = c; });
+        if (skinMesh) {
+          // ang geometry ay Z-up: bind pose ng buto (boneInverses) → bindMatrixInverse
+          const inv = skinMesh.bindMatrixInverse.clone();
+          const sk = skinMesh.skeleton;
+          sk.bones.forEach((b, i) => {
+            const side = /Bip01_LEye$/.test(b.name) ? eyes.l : /Bip01_REye$/.test(b.name) ? eyes.r : null;
+            if (side) side.value.setFromMatrixPosition(sk.boneInverses[i].clone().invert()).applyMatrix4(inv);
+          });
+        }
+        o.animations = [];
+        res(o);
+      }, undefined, rej);
+    });
+  }
+  return templates[key];
+}
+
+function buildPerson(g, o, tpl) {
+  const key = o.key;
+  const model = SkeletonUtils.clone(tpl);
+  model.scale.setScalar(PERSON_SCALE);
+  g.add(model);
+  const bones = {};
+  model.traverse((c) => { if (c.isBone) bones[c.name.replace('Bip01_', '')] = c; });
+  model.updateMatrixWorld(true);
+  const ex = o.extra || [];
+  const head = bones.Head;
+  const hp = new THREE.Vector3();
+  head.getWorldPosition(hp);
+  const gp = g.getWorldPosition(new THREE.Vector3());
+  const box = new THREE.Box3().setFromObject(model);
+  const topY = box.max.y - gp.y, headY = hp.y - gp.y;
+  // ikabit sa buto: ilagay muna sa world (model space ng tauhan), saka attach
+  const put = (bone, obj, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    g.add(obj);
+    obj.position.set(x, y, z);
+    obj.rotation.set(rx, ry, rz);
+    g.updateMatrixWorld(true);
+    bone.attach(obj);
+    obj.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+    return obj;
+  };
+  const M = (geo, material) => new THREE.Mesh(geo, material);
+  if (ex.includes('salakot')) put(head, M(new THREE.ConeGeometry(0.3, 0.15, 24), mat(0xc8a15a, { rough: 0.8 })), 0, topY + 0.02, 0);
+  if (ex.includes('buri')) {
+    put(head, M(new THREE.CylinderGeometry(0.08, 0.11, 0.1, 20), mat(0xd9b77a, { rough: 0.85 })), 0, topY + 0.01, -0.01);
+    put(head, M(new THREE.CylinderGeometry(0.22, 0.22, 0.012, 24), mat(0xd9b77a, { rough: 0.85 })), 0, topY - 0.04, -0.01);
+  }
+  if (ex.includes('glasses')) {
+    const eyeY = headY + 0.085;
+    for (const sx of [-1, 1]) put(head, M(new THREE.TorusGeometry(0.021, 0.0028, 6, 20), metalMat), sx * 0.033, eyeY, 0.072);
+    put(head, M(new THREE.BoxGeometry(0.022, 0.003, 0.003), metalMat), 0, eyeY + 0.004, 0.075);
+  }
+  if (ex.includes('collar')) put(bones.Neck, M(new THREE.BoxGeometry(0.03, 0.022, 0.004), mat(0xffffff, { rough: 0.5 })), 0, headY - 0.06, 0.068);
+  if (ex.includes('cross')) {
+    put(bones.Spine2, M(new THREE.BoxGeometry(0.014, 0.06, 0.006), metalMat), 0, headY - 0.3, 0.12);
+    put(bones.Spine2, M(new THREE.BoxGeometry(0.04, 0.012, 0.006), metalMat), 0, headY - 0.285, 0.12);
+  }
+  if (ex.includes('towel')) put(bones.Neck, M(new THREE.TorusGeometry(0.1, 0.03, 8, 20), mat(0xffffff, { rough: 0.95 })), 0, headY - 0.12, -0.01, Math.PI / 2 + 0.25, 0, 0);
+  if (ex.includes('flower')) put(head, M(new THREE.SphereGeometry(0.028, 12, 10), mat(0xffffff, { rough: 0.6 })), 0.08, topY - 0.06, 0.03);
+  if (ex.includes('curlers')) for (const x of [-0.04, 0, 0.04]) put(head, M(new THREE.CylinderGeometry(0.018, 0.018, 0.06, 10), mat(0xf48fb1, { rough: 0.4 })), x, topY - 0.01, 0.02, 0, 0, Math.PI / 2);
+  if (ex.includes('apron')) put(bones.Pelvis, M(new THREE.BoxGeometry(0.32, 0.5, 0.01), mat(0x5fa8d3, { rough: 0.9 })), 0, headY - 0.75, 0.13, -0.05, 0, 0);
+  let torch = false;
+  if (ex.includes('torch')) {
+    // sulo sa kamay, nakaturo palabas kasunod ng bisig
+    const hand = bones.R_Hand, fore = bones.R_Forearm;
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    fore.getWorldPosition(a);
+    hand.getWorldPosition(b);
+    const dir = b.clone().sub(a).normalize();
+    const t = new THREE.Group();
+    const stick = M(new THREE.CylinderGeometry(0.018, 0.026, 0.8, 8), mat(0x4a2a12, { rough: 0.9 }));
+    stick.position.y = 0.25;
+    t.add(stick);
+    const f = M(new THREE.ConeGeometry(0.07, 0.3, 10), hot(4, 1.6, 0.3));
+    f.position.y = 0.8;
+    t.add(f);
+    flames.push(f);
+    // nananatiling patayo ang sulo; sinusundan lang ang kamay bawat frame (tingnan ang humanTick)
+    g.add(t);
+    t.position.copy(g.worldToLocal(b.clone()));
+    torch = { obj: t, hand };
+  }
+  // animasyon
+  const sex = GENDER[key] || 'm';
+  const mixer = new THREE.AnimationMixer(model);
+  const rig = { model, bones, mixer, sex, actions: {}, cur: null, kind: 'idle', timer: 2 + Math.random() * 6, look: 0, lookP: 0, eyeL: 0, blink: 2 + Math.random() * 4, twitch: 4 + Math.random() * 8, tw: 0, headY, topY, torch, talkT: 0 };
+  g.userData.rig = rig;
+  g.userData.parts = null;
+  const names = [...ANIMS[sex].idle, ...ANIMS[sex].talk, ...(o.crowd ? ANIMS[sex].angry : [])];
+  Promise.all(names.map(loadClip)).then((clips) => {
+    clips.forEach((c) => (rig.actions[c.name] = mixer.clipAction(c)));
+    playClip(rig, o.crowd ? pick(ANIMS[sex].angry) : ANIMS[sex].idle[0], 0);
+  });
+}
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+function playClip(rig, name, fade = 0.5) {
+  const a = rig.actions[name];
+  if (!a || rig.cur === a) return;
+  a.reset();
+  a.time = Math.random() * a.getClip().duration;
+  a.play();
+  if (rig.cur) rig.cur.crossFadeTo(a, fade, false);
+  rig.cur = a;
+}
+
+// Bawat frame: pagpili ng galaw, titig sa player, kurap, ngisi, kislot
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
+const _ax = new THREE.Vector3(), _vh = new THREE.Vector3();
+function rotWorld(b, axis, ang) {
+  if (!b || Math.abs(ang) < 1e-4) return;
+  b.getWorldQuaternion(_qa);
+  _qa.premultiply(_qb.setFromAxisAngle(axis, ang));
+  b.parent.getWorldQuaternion(_qc);
+  b.quaternion.copy(_qc.invert().multiply(_qa));
+  b.updateMatrixWorld(true);
+}
+function humanTick(n, dt, s = {}) {
+  const r = n.userData.rig;
+  if (!r) return;
+  const A = ANIMS[r.sex];
+  // pagpili ng clip
+  const want = s.crowd ? 'angry' : s.talking ? 'talk' : 'idle';
+  r.timer -= dt;
+  if (want !== r.kind || r.timer <= 0) {
+    r.kind = want;
+    r.timer = want === 'idle' ? 6 + Math.random() * 9 : 4 + Math.random() * 4;
+    playClip(r, pick(A[want] || A.idle));
+  }
+  if (r.cur) r.cur.timeScale = s.crowd ? 1.1 : 0.85 - creep.value * 0.2; // mas mabagal at mabigat sa gabi
+  r.mixer.update(dt);
+  r.model.updateMatrixWorld(true);
+  if (r.torch) {
+    r.torch.hand.getWorldPosition(_vh);
+    r.torch.obj.position.copy(n.worldToLocal(_vh)).add(new THREE.Vector3(0, -0.15, 0));
+    const tt = performance.now() / 700 + n.id;
+    r.torch.obj.rotation.set(Math.sin(tt) * 0.12, 0, Math.cos(tt * 1.3) * 0.12);
+  }
+  // titig: ulo at mata papunta sa camera
+  const B = r.bones;
+  if (s.stare !== false && B.Head) {
+    B.Head.getWorldPosition(_vh);
+    const dx = camera.position.x - _vh.x, dz = camera.position.z - _vh.z, dy = camera.position.y - _vh.y;
+    const facing = n.rotation.y + (n.parent && n.parent !== scene ? n.parent.rotation.y : 0);
+    let yaw = Math.atan2(dx, dz) - facing;
+    yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+    const close = Math.hypot(dx, dz) < (s.range || 14);
+    const tYaw = close ? Math.max(-1.2, Math.min(1.2, yaw)) : 0;
+    const tPitch = close ? Math.max(-0.4, Math.min(0.4, Math.atan2(dy, Math.hypot(dx, dz)))) : 0;
+    // biglang lingon (hindi natural) kapag gabi
+    const sp = 2 + creep.value * 6;
+    r.look = lerp(r.look, tYaw, Math.min(1, dt * sp));
+    r.lookP = lerp(r.lookP, tPitch, Math.min(1, dt * sp));
+    _ax.set(0, 1, 0);
+    rotWorld(B.Neck, _ax, r.look * 0.45);
+    rotWorld(B.Head, _ax, r.look * 0.55);
+    _ax.set(Math.cos(facing + r.look), 0, -Math.sin(facing + r.look));
+    rotWorld(B.Head, _ax, -r.lookP * 0.8);
+    // kislot ng ulo / pagkiling (gabi)
+    r.twitch -= dt;
+    if (r.twitch < 0) { r.twitch = 3 + Math.random() * (10 - creep.value * 6); r.tw = 0.18; }
+    if (r.tw > 0) {
+      r.tw -= dt;
+      _ax.set(Math.sin(facing), 0, Math.cos(facing));
+      rotWorld(B.Head, _ax, Math.sin(r.tw * 60) * 0.12 * creep.value);
+    }
+    _ax.set(Math.sin(facing), 0, Math.cos(facing));
+    rotWorld(B.Head, _ax, creep.value * 0.18 * Math.sin(performance.now() / 4000 + n.id)); // nakakiling na ulo
+    // mata: sumusunod din
+    for (const e of [B.LEye, B.REye]) rotWorld(e, new THREE.Vector3(0, 1, 0), Math.max(-0.35, Math.min(0.35, yaw - r.look)));
+  }
+  // kurap: bihira, at sa gabi halos hindi na (nakadilat nang malaki)
+  r.blink -= dt;
+  if (r.blink < 0) r.blink = 3 + Math.random() * 5 + creep.value * 8;
+  const closing = r.blink < 0.11;
+  for (const [bn, sgn] of [['LEyeBlinkTop', -1], ['REyeBlinkTop', -1]]) {
+    const b = B[bn];
+    if (!b) continue;
+    if (!b.userData.base) b.userData.base = b.position.clone();
+    b.position.copy(b.userData.base);
+    b.position.y -= closing ? sgn * 0.9 : creep.value * 0.3;
+  }
+  // bibig: gumagalaw kapag nagsasalita; ngisi sa gabi
+  r.talkT += dt;
+  for (const [bn, sx] of [['LMouthCorner', 1], ['RMouthCorner', -1]]) {
+    const b = B[bn];
+    if (!b) continue;
+    if (!b.userData.base) b.userData.base = b.position.clone();
+    b.position.copy(b.userData.base);
+    const grin = creep.value > 0.6 ? (creep.value - 0.6) * 2.5 : 0;
+    b.position.x += sx * grin * 0.5;
+    b.position.y += grin * 0.4;
+  }
+  for (const bn of ['LUpperlip', 'RUpperlip']) {
+    const b = B[bn];
+    if (!b) continue;
+    if (!b.userData.base) b.userData.base = b.position.clone();
+    b.position.copy(b.userData.base);
+    if (s.talking) b.position.y += Math.abs(Math.sin(r.talkT * 13 + Math.sin(r.talkT * 4) * 2)) * 0.35;
+  }
+}
+
+// person(): agad nagbabalik ng Group; ang katawan ay ilalagay kapag na-load na
+function person(o) {
+  const g = new THREE.Group();
+  g.userData.o = o;
+  g.userData.parts = null;
+  const key = o.key && GENDER[o.key] ? o.key : 'v2';
+  loadTemplate(key).then((tpl) => buildPerson(g, Object.assign({}, o, { key }), tpl)).catch((e) => {
+    console.warn('person fallback', key, e);
+    const s = personSimple(o);
+    for (const c of [...s.children]) g.add(c);
+    g.userData.parts = s.userData.parts;
+    g.userData.blink = s.userData.blink;
+  });
+  return g;
+}
+
+// Larawan ng mukha para sa dialogue box: kinukunan ang totoong 3D na tauhan
+let portraitRenderer = null;
+const portraitCacheW = {};
+function portraitOf(id) {
+  const ck = id + (creep.value > 0.6 ? ':n' : ':d'); // iba ang mukha sa gabi
+  if (portraitCacheW[ck]) return portraitCacheW[ck];
+  const src = id === 'you' ? player : npcs[id];
+  if (!src || !src.userData.rig) return null;
+  try {
+    if (!portraitRenderer) {
+      portraitRenderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      portraitRenderer.setSize(256, 288, false);
+      portraitRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      portraitRenderer.toneMappingExposure = 1.0;
+    }
+    const ps = new THREE.Scene();
+    ps.background = new THREE.Color(0x0c0808);
+    ps.fog = new THREE.Fog(0x0c0808, 1.2, 2.6);
+    ps.add(new THREE.HemisphereLight(0xd8e0e8, 0x201010, 0.7));
+    const key = new THREE.DirectionalLight(0xffe0c0, 2.6);
+    key.position.set(0.8, 0.3, 1.6); // ilaw mula sa ibaba-gilid, parang flashlight
+    const rim = new THREE.DirectionalLight(0x8fa4ff, 1.8);
+    rim.position.set(-2, 2.2, -1.5);
+    ps.add(key, rim);
+    // ang modelo lang (hindi ang Group na may rig sa userData — circular iyon)
+    const c = SkeletonUtils.clone(src.userData.rig.model);
+    c.position.set(0, 0, 0);
+    c.rotation.set(0, 0, 0);
+    c.visible = true;
+    ps.add(c);
+    c.updateMatrixWorld(true);
+    let hb = null;
+    c.traverse((b) => { if (b.isBone && /Bip01_Head$/.test(b.name)) hb = b; });
+    const hp = hb ? hb.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, 1.62, 0);
+    const cam = new THREE.PerspectiveCamera(20, 256 / 288, 0.05, 20);
+    cam.position.set(hp.x + 0.12, hp.y + 0.1, hp.z + 0.95);
+    cam.lookAt(hp.x, hp.y + 0.06, hp.z);
+    key.target.position.copy(hp);
+    ps.add(key.target);
+    portraitRenderer.render(ps, cam);
+    portraitCacheW[ck] = portraitRenderer.domElement.toDataURL('image/jpeg', 0.92);
+    return portraitCacheW[ck];
+  } catch (e) {
+    console.warn('portrait', e);
+    return null;
+  }
 }
 
 // Ang tikbalang: payat, matangkad, nakakuba, mahabang mukha ng kabayo,
@@ -898,7 +1655,7 @@ const NPC_DEFS = {
 const npcs = {};
 function buildNPCs() {
   for (const [id, def] of Object.entries(NPC_DEFS)) {
-    const m = def.tall ? tikbalangModel() : person(def.o);
+    const m = def.tall ? tikbalangModel() : person(Object.assign({ key: id }, def.o));
     m.visible = false;
     m.userData.id = id;
     m.traverse((o) => { if (o.isMesh) o.castShadow = true; });
@@ -1059,7 +1816,7 @@ function buildCrowds() {
   const R = rng(99);
   const tops = [0x5a2a2a, 0x3a3a5a, 0x4a4a2a, 0x2a4a3a, 0x5a4a3a];
   for (let i = 0; i < 14; i++) {
-    const p = person({ skin: 0x8a5a3a, hair: 'short', hairC: 0x111111, top: tops[i % tops.length], bottom: 0x2a2a2a, extra: i % 2 ? ['torch'] : [] });
+    const p = person({ key: ['v1', 'v2', 'v3', 'v4', 'kardo', 'v5', 'tonyo'][i % 7], crowd: true, skin: 0x8a5a3a, hair: 'short', hairC: 0x111111, top: tops[i % tops.length], bottom: 0x2a2a2a, extra: i % 2 ? ['torch'] : [] });
     const a = (i / 14) * Math.PI * 1.2 + 0.2, r = 5 + R() * 3;
     p.position.set(15 + Math.cos(a) * r * 0.9, 0, 11 + Math.sin(a) * r * 0.5);
     p.rotation.y = Math.atan2(15 - p.position.x, 4 - p.position.z);
@@ -1074,7 +1831,7 @@ function buildCrowds() {
   const cols = [0xe53935, 0x1e88e5, 0xfdd835, 0x43a047, 0xfb8c00, 0xf06292, 0x8e24aa, 0x00acc1];
   const spots = [[6, -6], [11, -9], [24, -6], [26, 10], [5, 6], [12, 12], [20, -10], [3, -2]];
   spots.forEach(([x, z], i) => {
-    const p = person({ skin: [0xb97a50, 0xa8703f, 0xc68a5e][i % 3], hair: i % 3 ? 'short' : 'ponytail', hairC: 0x1a1a1a, top: cols[i], bottom: 0x3b3b4a, skirt: i % 4 === 1 });
+    const p = person({ key: ['v4', 'v1', 'v5', 'v2', 'v3', 'v4', 'v1', 'v5'][i], skin: [0xb97a50, 0xa8703f, 0xc68a5e][i % 3], hair: i % 3 ? 'short' : 'ponytail', hairC: 0x1a1a1a, top: cols[i], bottom: 0x3b3b4a, skirt: i % 4 === 1 });
     p.position.set(x, 0, z);
     p.rotation.y = R() * 6;
     villagers.add(p);
@@ -1087,7 +1844,7 @@ function buildCrowds() {
 // Player
 let player;
 function buildPlayer() {
-  player = person({ skin: 0xb07a52, hair: 'short', hairC: 0x1a1a1a, top: 0x3f7fbf, bottom: 0x2e3f5e, extra: ['backpack'] });
+  player = person({ key: 'v2', skin: 0xb07a52, hair: 'short', hairC: 0x1a1a1a, top: 0x3f7fbf, bottom: 0x2e3f5e, extra: ['backpack'] });
   player.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   player.userData.dynamic = true;
   scene.add(player);
@@ -1184,6 +1941,7 @@ function stepTime(t) {
   fireflies.material.opacity = cur.night * 0.9;
   for (const m of glowMats) m.emissiveIntensity = cur.night * 1.6;
   bloodGroup.visible = cur.night > 0.55;
+  creep.value = 0.35 + cur.night * 0.65;
   for (const n of nightLights) n.light.intensity = cur.night * n.max;
   if (scenery.mountains) {
     for (const [m, base] of scenery.mountains) {
@@ -1442,6 +2200,10 @@ let promptText = '';
 let objTimer = 0;
 
 function animateWalk(obj, speed, dt, phaseRef) {
+  if (obj.userData.rig) {
+    if (obj.visible) humanTick(obj, dt, { stare: false });
+    return;
+  }
   const p = obj.userData.parts;
   if (!p) return;
   const sw = speed > 0.1 ? Math.sin(phaseRef) * Math.min(0.7, 0.3 + speed * 0.06) : 0;
@@ -1466,7 +2228,7 @@ function blinkTick(n, dt) {
 // sa paligid nito; kapag lumapit ka o may usapan, humihinto sila at humaharap sa iyo.
 function npcBrain(n, id, dt, time, dist, faceAng, canWander, range = 1.6) {
   const ud = n.userData, p = ud.parts;
-  if (!p || !p.torso) return;
+  if (!ud.rig && (!p || !p.torso)) return;
   // Kung inilipat ng kuwento/cine ang NPC, iyon ang bagong home
   if (!ud.home || !ud.last || Math.abs(n.position.x - ud.last.x) > 0.01 || Math.abs(n.position.z - ud.last.z) > 0.01) {
     ud.home = n.position.clone();
@@ -1478,7 +2240,7 @@ function npcBrain(n, id, dt, time, dist, faceAng, canWander, range = 1.6) {
   const near = dist < 6.5;
   const talking = id && speakerId === id && (Game.mode === 'play' || Game.mode === 'choice');
   let speed = 0;
-  if (canWander && !near) {
+  if (canWander && !near && !ud.rig) {
     if (!ud.target) {
       ud.wait -= dt;
       if (ud.wait <= 0) {
@@ -1504,6 +2266,12 @@ function npcBrain(n, id, dt, time, dist, faceAng, canWander, range = 1.6) {
   } else if (near || !canWander) {
     ud.target = null;
     if (dist < 12) n.rotation.y = lerpAngle(n.rotation.y, faceAng, Math.min(1, dt * 4));
+  }
+  if (ud.rig) {
+    const look = near && dist < 12 ? 0 : speed === 0 ? Math.sin(time * 0.37 + ud.seed) * 0.6 * Math.max(0, Math.sin(time * 0.13 + ud.seed * 2)) : 0;
+    humanTick(n, dt, { talking, range: 16 });
+    ud.last = n.position.clone();
+    return;
   }
   ud.phase += dt * speed * 4.2;
   animateWalk(n, speed, dt, ud.phase);
@@ -1594,6 +2362,10 @@ function update(dt, time) {
   if (crowd.visible) {
     // nagkukumpulan: umuugoy, tinataas-baba ang sulo, sumisigaw
     crowd.children.forEach((c, i) => {
+      if (c.userData.rig) {
+        humanTick(c, dt, { crowd: true, range: 22 });
+        return;
+      }
       const p = c.userData.parts;
       if (!p) return;
       const s = time * 2.2 + i * 1.3;
@@ -2347,6 +3119,7 @@ window.World = {
     scareHold = 1.0;
   },
   bark: (text) => showBark(text),
+  portrait: (id) => portraitOf(id),
   // Para sa pag-test: World.teleportTo('balete_front') sa browser console
   teleportTo: teleport,
   playerPos: () => ({ x: +player.position.x.toFixed(2), z: +player.position.z.toFixed(2) }),
@@ -2459,6 +3232,7 @@ buildShed();
 for (const [x, z, h] of [[-40, 30, 9], [-30, 48, 8], [22, 48, 10], [36, 30, 8], [-8, 26, 7], [48, 44, 9], [62, 48, 8], [-52, 14, 9], [-58, -8, 8], [42, -30, 7], [30, 34, 9], [-22, 26, 8], [-64, 34, 10], [72, 40, 7], [-4, 50, 9], [-48, 46, 8]]) buildCoconut(x, z, h);
 buildRice();
 buildForest();
+buildPlants();
 buildBalete();
 buildKubo();
 buildScenery();
@@ -2552,7 +3326,7 @@ stepTime(1);
 // ---------------- Post-processing (bloom + tone mapping) ----------------
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.55, 0.6, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.5, 0.6, 0.92);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 bloom.enabled = GFX === 'high';
