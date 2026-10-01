@@ -631,7 +631,15 @@
     if (v <= 0) return v < 0 ? '💔'.repeat(Math.min(3, -v)) : '<span class="muted">—</span>';
     return icon.repeat(Math.min(6, v)) + (v > 6 ? `<small>+${v - 6}</small>` : '');
   }
+  // Dugo sa gilid ng screen kapag mababa ang HP
+  function bloodScreen() {
+    const el = document.getElementById('bloodscreen');
+    if (!el) return;
+    const hp = S && S.hp != null ? S.hp : 100;
+    el.style.opacity = hp >= 100 ? 0 : Math.min(1, ((100 - hp) / 100) * 1.25);
+  }
   function renderStats() {
+    bloodScreen();
     const el = $('#stats');
     if (!S) return (el.innerHTML = '');
     ensureState();
@@ -952,6 +960,13 @@
       if (fromMenu) actions.menu();
       toast(t('langSwitched'));
     },
+    toggleGfx() {
+      const w = W();
+      if (!w || !w.setGraphics) return;
+      w.setGraphics(w.getGraphics() === 'high' ? 'low' : 'high');
+      const b = document.getElementById('menuGfxBtn');
+      if (b) b.textContent = gfxLabel();
+    },
     toggleScares() {
       settings.scares = !settings.scares;
       store.set(KEYS.settings, settings);
@@ -1018,6 +1033,7 @@
             <button class="btn" data-go="toggleLang" id="menuLangBtn">${langLabel()}</button>
             <button class="btn" data-go="speed" id="menuSpeedBtn">⏩ ${speedLabel()}</button>
             <button class="btn" data-go="toggleScares" id="menuScareBtn">${scareLabel()}</button>
+            ${W() && W().setGraphics ? `<button class="btn" data-go="toggleGfx" id="menuGfxBtn">${gfxLabel()}</button>` : ''}
             <button class="btn" data-go="quitToTitle">🏠 ${t('mainMenu')}</button>
             <button class="btn primary" data-go="closeModal">▶ ${t('resume')}</button>
           </div>
@@ -1032,6 +1048,10 @@
       if (confirm(t('confirmMenu'))) showTitle();
     },
   };
+  function gfxLabel() {
+    const hi = W() && W().getGraphics && W().getGraphics() === 'high';
+    return '✨ ' + t('graphics') + ': ' + (hi ? t('gfxHigh') : t('gfxLow'));
+  }
   function scareLabel() {
     return settings.scares ? t('scaresOn') : t('scaresOff');
   }

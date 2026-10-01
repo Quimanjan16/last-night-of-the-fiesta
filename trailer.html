@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=VT323&family=IM+Fell+English+SC&family=Special+Elite&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=19">
+  <link rel="stylesheet" href="css/style.css?v=20">
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js" } }
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
   </script>
   <style>
     /* Ang laro ay nasa likod (1280x720), ang teaser canvas ang nakikita */
@@ -60,6 +60,7 @@
     <div id="questTracker"></div>
     <canvas id="minimap" width="440" height="440"></canvas>
     <div id="redvignette"></div>
+    <div id="bloodscreen"></div>
     <div id="survival">
       <div class="sv-clock">🔔 <span id="sv-time">11:00 PM</span></div>
       <div class="sv-row"><span>🏃</span><div class="sv-bar"><i id="sv-stamina"></i></div></div>
@@ -81,12 +82,12 @@
     <div id="overlay" class="overlay" hidden></div>
   </div>
 
-  <script src="js/i18n.js?v=19"></script>
-  <script src="js/art.js?v=19"></script>
-  <script src="js/story.js?v=19"></script>
-  <script src="js/audio.js?v=19"></script>
-  <script src="js/engine.js?v=19"></script>
-  <script type="module" src="js/world.js?v=19"></script>
-  <script type="module" src="js/trailer.js?v=19"></script>
+  <script src="js/i18n.js?v=20"></script>
+  <script src="js/art.js?v=20"></script>
+  <script src="js/story.js?v=20"></script>
+  <script src="js/audio.js?v=20"></script>
+  <script src="js/engine.js?v=20"></script>
+  <script type="module" src="js/world.js?v=20"></script>
+  <script type="module" src="js/trailer.js?v=20"></script>
 </body>
 </html>
