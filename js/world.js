@@ -1913,11 +1913,20 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 function playClip(rig, name, fade = 0.5) {
   const a = rig.actions[name];
   if (!a || rig.cur === a) return;
-  a.reset();
-  a.time = Math.random() * a.getClip().duration;
+  // i-restart lang kung tuluyan nang tumigil (kung hindi, biglang tatalon ang pose)
+  if (!a.isRunning() || a.getEffectiveWeight() < 0.001) {
+    a.reset();
+    a.time = Math.random() * a.getClip().duration;
+  }
+  a.enabled = true;
   a.play();
   if (rig.cur) rig.cur.crossFadeTo(a, fade, false);
   rig.cur = a;
+}
+// pumili ng clip na hindi pa nagfe-fade (iwas sa biglang lipat)
+function pickClip(rig, list) {
+  const free = list.filter((nm) => rig.actions[nm] && rig.actions[nm] !== rig.cur && rig.actions[nm].getEffectiveWeight() < 0.001);
+  return free.length ? pick(free) : null;
 }
 
 // Bawat frame: galaw, titig sa player, kurap, ngisi, kislot
@@ -1936,6 +1945,7 @@ function worldYaw(n) {
   for (let o = n; o && o !== scene; o = o.parent) y += o.rotation.y;
   return y;
 }
+const PROC_BONES = ['Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LEye', 'REye'];
 function humanTick(n, dt, s = {}) {
   const r = n.userData.rig;
   if (!r) return;
@@ -1943,18 +1953,27 @@ function humanTick(n, dt, s = {}) {
   const want = s.crowd ? 'angry' : s.talking ? 'talk' : 'idle';
   r.timer -= dt;
   if (want !== r.kind || r.timer <= 0) {
-    r.kind = want;
-    r.timer = want === 'idle' ? 6 + Math.random() * 9 : 4 + Math.random() * 4;
-    playClip(r, pick(A[want] || A.idle));
+    const next = pickClip(r, A[want] || A.idle);
+    if (next || want !== r.kind) {
+      r.kind = want;
+      r.timer = want === 'idle' ? 6 + Math.random() * 9 : 4 + Math.random() * 4;
+      if (next) playClip(r, next, 0.8);
+    } else r.timer = 1;
   }
   if (r.cur) r.cur.timeScale = s.crowd ? 1.1 : 0.85 - creep.value * 0.2;
+  // Ibalik sa orihinal ang mga butong ginagalaw natin bago ang animasyon.
+  // (Kung walang track ang buto sa clip, naiipon ang ikot bawat frame → biglang kislot.)
+  for (const bn of PROC_BONES) {
+    const b = r.bones[bn];
+    if (!b) continue;
+    if (!b.userData.q0) b.userData.q0 = b.quaternion.clone();
+    b.quaternion.copy(b.userData.q0);
+  }
   r.mixer.update(dt);
   r.model.updateMatrixWorld(true);
   const B = r.bones;
   const facing = worldYaw(n);
   const live = !!r.cur;
-  // ang mata ay walang track: ibalik muna sa orihinal
-  for (const e of [B.LEye, B.REye]) { if (!e) continue; if (!e.userData.q0) e.userData.q0 = e.quaternion.clone(); e.quaternion.copy(e.userData.q0); }
   // kuba (lola, tikbalang)
   if (r.hunch && live) {
     _ax.set(Math.cos(facing), 0, -Math.sin(facing));
@@ -1973,11 +1992,14 @@ function humanTick(n, dt, s = {}) {
     let yaw = Math.atan2(dx, dz) - facing;
     yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
     const close = Math.hypot(dx, dz) < (s.range || 14);
-    const tYaw = close ? Math.max(-1.2, Math.min(1.2, yaw)) : 0;
-    const tPitch = close ? Math.max(-0.5, Math.min(0.5, Math.atan2(dy, Math.hypot(dx, dz)))) : 0;
-    const sp = 2 + creep.value * 6;
-    r.look = lerp(r.look, tYaw, Math.min(1, dt * sp));
-    r.lookP = lerp(r.lookP, tPitch, Math.min(1, dt * sp));
+    // kapag nasa likod ka na, babalik sa harap ang ulo (hindi lilipad mula balikat hanggang balikat)
+    const tYaw = close && Math.abs(yaw) < 1.45 ? Math.max(-1.1, Math.min(1.1, yaw)) : 0;
+    const tPitch = close ? Math.max(-0.45, Math.min(0.45, Math.atan2(dy, Math.hypot(dx, dz)))) : 0;
+    // makinis at may limitasyon ang bilis ng lingon
+    const maxStep = dt * (2.2 + creep.value * 1.8);
+    const ease = (cur, tgt) => cur + Math.max(-maxStep, Math.min(maxStep, (tgt - cur) * Math.min(1, dt * 6)));
+    r.look = ease(r.look, tYaw);
+    r.lookP = ease(r.lookP, tPitch);
     rotWorld(B.Neck, _up, r.look * 0.45);
     rotWorld(B.Head, _up, r.look * 0.55);
     _ax.set(Math.cos(facing + r.look), 0, -Math.sin(facing + r.look));
@@ -1985,12 +2007,14 @@ function humanTick(n, dt, s = {}) {
     r.twitch -= dt;
     if (r.twitch < 0) { r.twitch = 3 + Math.random() * (10 - creep.value * 6); r.tw = 0.18; }
     _ax.set(Math.sin(facing), 0, Math.cos(facing));
+    // marahas na kislot: para lang sa mga nilalang (sa tao, mukha itong sira/glitch)
+    const creature = !!r.horse || /mng|whitelady/.test(r.style);
     if (r.tw > 0) {
       r.tw -= dt;
-      rotWorld(B.Head, _ax, Math.sin(r.tw * 60) * 0.12 * Math.max(creep.value, r.horse ? 1 : 0));
+      if (creature) rotWorld(B.Head, _ax, Math.sin(r.tw * 60) * 0.12);
     }
     rotWorld(B.Head, _ax, creep.value * 0.18 * Math.sin(performance.now() / 4000 + n.id));
-    for (const e of [B.LEye, B.REye]) rotWorld(e, _up, Math.max(-0.35, Math.min(0.35, yaw - r.look)));
+    for (const e of [B.LEye, B.REye]) rotWorld(e, _up, Math.max(-0.3, Math.min(0.3, tYaw - r.look)));
   }
   // kurap: bihira; sa gabi nakadilat nang malaki
   r.blink -= dt;
